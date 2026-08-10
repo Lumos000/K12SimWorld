@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k12simworld.org/schemas/evaluation-record-1.0.json",
+  "title": "K12SimWorld evaluation record",
+  "type": "object",
+  "required": ["problem_id", "model", "method", "success", "scores"],
+  "properties": {
+    "problem_id": {"type": "string"},
+    "model": {"type": "string"},
+    "method": {
+      "enum": ["text_cot", "static_manim", "direct_code", "unanchored", "k12simworld_state_anchored"]
+    },
+    "success": {"type": "boolean"},
+    "scores": {
+      "type": "object",
+      "additionalProperties": {"type": ["number", "null"], "minimum": 0, "maximum": 100}
+    },
+    "human_ratings": {"type": "array"},
+    "latency_seconds": {"type": "number", "minimum": 0},
+    "input_tokens": {"type": "integer", "minimum": 0},
+    "output_tokens": {"type": "integer", "minimum": 0},
+    "estimated_cost_usd": {"type": "number", "minimum": 0}
+  }
+}

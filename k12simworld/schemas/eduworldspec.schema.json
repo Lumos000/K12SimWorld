@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k12simworld.org/schemas/eduworldspec-1.0.json",
+  "title": "EduWorldSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "problem_id",
+    "coordinate_system",
+    "objects",
+    "parameters",
+    "constraints",
+    "initial_state",
+    "expected_events",
+    "learning_goals",
+    "visual_conventions"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "problem_id": {"type": "string", "minLength": 1},
+    "coordinate_system": {"type": "object"},
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "type": {"type": "string", "minLength": 1},
+          "geometry": {"type": "object"},
+          "visual": {"type": "object"}
+        }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "value", "unit"],
+        "properties": {
+          "id": {"type": "string"},
+          "value": {"type": ["number", "string", "boolean"]},
+          "unit": {"type": "string"},
+          "source": {"enum": ["problem", "derived", "normalized_convention"]}
+        }
+      }
+    },
+    "constraints": {"type": "array", "items": {"type": "object"}},
+    "initial_state": {"type": "object"},
+    "expected_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "participants", "condition", "storyboard_step"],
+        "properties": {
+          "id": {"type": "string"},
+          "type": {"type": "string"},
+          "participants": {"type": "array", "items": {"type": "string"}},
+          "condition": {"type": ["string", "object"]},
+          "storyboard_step": {"type": "string"}
+        }
+      }
+    },
+    "final_state": {"type": "object"},
+    "learning_goals": {"type": "array", "items": {"type": "string"}},
+    "visual_conventions": {"type": "object"}
+  }
+}

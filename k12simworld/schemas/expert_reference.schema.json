@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k12simworld.org/schemas/expert-reference-1.0.json",
+  "title": "K12SimBench expert executable reference",
+  "type": "object",
+  "required": ["problem_id", "initial_state", "expected_events", "final_state", "trajectories"],
+  "properties": {
+    "problem_id": {"type": "string"},
+    "initial_state": {"type": "object"},
+    "expected_events": {"type": "array", "items": {"type": "object"}},
+    "final_state": {"type": "object"},
+    "trajectories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["t", "value"],
+          "properties": {
+            "t": {"type": "number"},
+            "value": {"type": ["number", "array"]}
+          }
+        }
+      }
+    },
+    "parameter_ranges": {"type": "object"},
+    "review": {"type": "object"}
+  }
+}

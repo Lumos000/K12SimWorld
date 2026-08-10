@@ -1,0 +1,7 @@
+{
+  "name": "k12simworld-renderer",
+  "private": true,
+  "dependencies": {
+    "puppeteer": "^24.23.0"
+  }
+}

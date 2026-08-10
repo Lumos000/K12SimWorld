@@ -1,0 +1,23 @@
+{
+  "domain_model": "dc_circuit",
+  "duration": 8.0,
+  "dt": 0.1,
+  "ground": "gnd",
+  "nodes": [
+    {"id": "gnd", "x": -1.0, "y": -1.0, "label": "0 V"},
+    {"id": "n1", "x": -1.0, "y": 1.0, "label": "n1"},
+    {"id": "n2", "x": 1.0, "y": 1.0, "label": "n2"},
+    {"id": "n3", "x": 1.0, "y": -1.0, "label": "n3"}
+  ],
+  "components": [
+    {"id": "battery", "label": "6 V", "type": "voltage_source", "node_a": "n1", "node_b": "gnd", "voltage": 6.0},
+    {"id": "A1", "label": "A", "type": "ammeter", "node_a": "n1", "node_b": "n2", "resistance": 0.000001},
+    {"id": "lamp", "label": "lamp", "type": "lamp", "node_a": "n2", "node_b": "n3", "resistance": 6.0, "rated_power": 6.0},
+    {"id": "S1", "label": "switch", "type": "switch", "node_a": "n3", "node_b": "gnd", "closed": false},
+    {"id": "V1", "label": "V", "type": "voltmeter", "node_a": "n2", "node_b": "n3", "resistance": 1000000000.0}
+  ],
+  "actions": [
+    {"time": 2.0, "target": "S1", "property": "closed", "value": true},
+    {"time": 6.0, "target": "S1", "property": "closed", "value": false}
+  ]
+}

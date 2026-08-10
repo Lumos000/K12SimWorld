@@ -1,0 +1,31 @@
+{
+  "domain_model": "charged_particle_2d",
+  "duration": 8.0,
+  "dt": 0.0166666667,
+  "playback_duration": 8.0,
+  "electric_field": [0.0, 0.0],
+  "magnetic_field": [0.0, 0.0, 0.0],
+  "bounds": {"x_min": -5.0, "x_max": 9.0, "y_min": -5.0, "y_max": 5.0},
+  "field_regions": [
+    {
+      "id": "magnetic_zone",
+      "label": "B field",
+      "bounds": {"x_min": 0.0, "x_max": 8.0, "y_min": -4.0, "y_max": 4.0},
+      "electric_field": [0.0, 0.0],
+      "magnetic_field": [0.0, 0.0, 1.0],
+      "mode": "override",
+      "color": "#bfdbfe"
+    }
+  ],
+  "particles": [
+    {
+      "id": "particle",
+      "label": "q > 0",
+      "mass": 1.0,
+      "charge": 1.0,
+      "position": [-2.0, 0.0],
+      "velocity": [1.0, 0.0],
+      "color": "#dc2626"
+    }
+  ]
+}

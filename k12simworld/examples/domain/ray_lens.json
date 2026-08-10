@@ -1,0 +1,13 @@
+{
+  "domain_model": "geometric_ray_2d",
+  "max_interactions": 8,
+  "max_distance": 20.0,
+  "sources": [
+    {"id": "ray_parallel", "label": "parallel ray", "origin": [-5.0, 1.5], "direction": [1.0, 0.0], "color": "#dc2626"},
+    {"id": "ray_center", "label": "central ray", "origin": [-5.0, 1.5], "direction": [5.0, -1.5], "color": "#f97316"}
+  ],
+  "elements": [
+    {"id": "lens", "label": "convex lens", "type": "thin_lens", "x": 0.0, "optical_axis_y": 0.0, "aperture": 7.0, "focal_length": 3.0},
+    {"id": "screen", "label": "screen", "type": "screen", "p1": [3.0, -3.5], "p2": [3.0, 3.5]}
+  ]
+}

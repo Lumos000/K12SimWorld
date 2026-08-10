@@ -1,0 +1,142 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{xcolor}
+
+\newcommand{\system}{\textsc{K12SimWorld}}
+\newcommand{\benchmark}{\textsc{K12SimBench}}
+\newcommand{\tbd}[1]{\textcolor{red}{[TBD: #1]}}
+
+\title{K12SimWorld: Generating Executable and Pedagogically Grounded\\
+Simulations for K--12 Multimodal Problems}
+\author{Anonymous Authors}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Multimodal models are increasingly evaluated on answers to educational questions, but an
+answer does not reveal whether a model has formed a testable account of the depicted process.
+We introduce \benchmark, a benchmark of approximately 240 Chinese K--12 multimodal problems
+centered on physics with controlled cross-subject extensions, and \system, a framework that
+turns a problem into an interleaved explanation and deterministic executable simulation.
+The method anchors every scene to one typed world specification, making objects, parameters,
+constraints, and expected events inspectable. We compare text-only reasoning, static diagrams,
+direct code generation, unanchored simulation, and our full method using answer, event,
+constraint, pedagogical, reliability, and cost measures. \tbd{Insert measured sample counts,
+confidence intervals, and the single central empirical finding; do not claim learning gains.}
+\end{abstract}
+
+\section{Introduction}
+K12Vista demonstrates the breadth and difficulty of Chinese K--12 multimodal reasoning
+\cite{li2025k12vista}. EduIllustrate shifts evaluation from answers to interleaved text--diagram
+explanations \cite{bi2026eduillustrate}, while VisPhyWorld treats executable simulator code as a
+falsifiable physical hypothesis \cite{liang2026visphyworld}. Their combination is non-trivial:
+K12Vista provides questions rather than reference videos, and many educational processes are
+not rigid-body reconstruction tasks.
+
+We ask whether models can generate an executable process that is simultaneously correct,
+consistent across explanatory steps, and appropriate for a learner's grade. Our contributions
+are: (1) a curated benchmark and expert-reference subset; (2) a canonical EduWorldSpec and
+state-anchored generation protocol; and (3) a success-aware evaluation separating solution,
+simulation, and pedagogical quality.
+
+\section{Related Work}
+We organize prior work around multimodal K--12 assessment, multimedia educational content,
+programmatic diagram generation, and executable physical reasoning. Unlike pixel-space video
+generation, our goal is not photorealism; unlike static diagram generation, our output commits
+to state transitions and executable constraints. Multimedia-learning theory motivates evaluating
+coordination and cognitive load rather than visual appeal alone \cite{mayer2002multimedia,
+sweller1988cognitive,paivio1971imagery}.
+
+\section{K12SimBench}
+\paragraph{Source and selection.}
+We curate problems from K12Vista without exposing reference solutions to candidate models.
+The main subset targets middle- and high-school physics; mathematics, chemistry, biology, and
+geography form a controlled extension. Inclusion requires pedagogically useful dynamics, a
+clear answer and stepwise reference, a representable state, and deterministic short-horizon
+execution. Knowledge-point groups remain disjoint across development, validation, and test.
+
+\paragraph{Expert references.}
+A stratified 60-problem subset receives canonical object states, parameter ranges, expected
+events, final states, and verified reference simulations. \tbd{Report adjudication process,
+license review, and final distributions from the frozen curation summary.}
+
+\section{K12SimWorld}
+Given problem $q$ and image $I$, the model produces a storyboard $B$, canonical world
+specification $W$, and scene programs $C_1,\ldots,C_n$:
+\[
+(q,I) \rightarrow B \rightarrow W \rightarrow \{C_i(W)\}_{i=1}^{n}
+\rightarrow \{\hat X_i\}_{i=1}^{n}.
+\]
+The storyboard alternates explanatory text and simulations only when motion or state change
+supports a reasoning step. EduWorldSpec declares coordinates, objects, parameters with units,
+constraints, initial and final state, expected events, learning goals, and visual conventions.
+Every program records the canonical SHA-256 hash of $W$ and uses identical object identities,
+values, and camera conventions. Mechanics routes to Three.js+Cannon.js, deterministic state
+processes to P5.js, and symbolic construction to Manim. Validation permits one repair; a second
+failure remains a scored failure rather than falling back to an empty scene.
+
+\section{Evaluation}
+We retain eight adapted EduIllustrate dimensions: correctness, coherence, pedagogy, typography,
+simulation--problem alignment, layout, temporal consistency, and text--simulation coordination.
+Four executable dimensions measure initial state, key events, final state, and constraint
+satisfaction. We report separate geometric means $Q_{sol}$, $Q_{sim}$, and $Q_{ped}$, followed by
+$Q_{all}=(Q_{sol}Q_{sim}Q_{ped})^{1/3}$. Failed generations receive zero on every dimension.
+
+Each expert artifact is independently scored by at least three qualified raters. We report
+Krippendorff's $\alpha$, per-dimension Spearman correlation with the automatic judge, paired
+bootstrap confidence intervals, paired randomization tests, effect sizes, and Holm correction.
+
+\section{Experimental Setup}
+We compare text-only chain of thought, EduIllustrate-style static Manim, direct executable code,
+independently generated scenes, and the full state-anchored system. Each frozen model--method
+combination runs once on the full benchmark and three times on the expert subset. Prompt,
+model/API version, renderer, repair budget, runtime, tokens, and contemporaneous price are logged.
+\tbd{Insert exact model snapshots and inference dates.}
+
+\section{Results}
+\IfFileExists{../results/main_results.tex}{\input{../results/main_results.tex}}{
+\begin{center}\fbox{Run the evaluation reporter to generate main\_results.tex.}\end{center}}
+
+We answer seven preregistered questions: whether execution improves reasoning; whether gains are
+pedagogical or merely visual; whether runnable code masks wrong parameters; the contributions of
+WorldSpec and anchoring; the role of physics-native engines; difficult strata; and judge validity.
+All claims in this section must name the supporting metric and confidence interval.
+
+\section{Ablations and Analysis}
+We remove WorldSpec, remove state anchoring, replace the physics-native backend, remove structured
+visual context, and vary the repair budget. Results are paired by problem. Case studies include
+one fully correct example, one executable but causally wrong example, one visually plausible but
+constraint-violating example, and one pedagogically poor example.
+
+\section{Limitations and Ethics}
+Executable simulations necessarily simplify the world and may encode a plausible but incorrect
+normalization when a problem omits parameters. Automated judges may be unreliable on subjective
+pedagogy. The benchmark measures artifact quality, not student learning; without a classroom or
+pre/post intervention we make no causal learning claim. Public release must respect K12Vista's
+license and remove rater identity. Generated material requires qualified teacher review before use.
+
+\section{Conclusion}
+\system provides a falsifiable bridge between multimodal educational reasoning and programmatic
+simulation. \tbd{Conclude only with findings supported by the completed experiment.}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\appendix
+\section{Reproducibility Checklist}
+Release the frozen IDs, schemas, prompt version, raw responses where permitted, validation logs,
+renderer configuration, annotations, aggregation code, and exact API metadata. Do not release
+provider credentials or identifiable rater data.
+
+\section{Rubrics and Additional Cases}
+Include complete 0--5 anchors, per-subject distributions, all ablation tables, failure taxonomy,
+and representative cases selected before inspecting model identities.
+
+\end{document}

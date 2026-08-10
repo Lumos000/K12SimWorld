@@ -1,0 +1,72 @@
+{
+  "domain_model": "ode_system",
+  "duration": 8,
+  "dt": 0.01,
+  "playback_duration": 8,
+  "objects": [
+    {
+      "id": "rod",
+      "label": "导体棒",
+      "kind": "rod",
+      "color": "#2563eb"
+    }
+  ],
+  "variables": [
+    {
+      "id": "x",
+      "initial": 0,
+      "label": "位置",
+      "unit": "m",
+      "color": "#2563eb"
+    },
+    {
+      "id": "v",
+      "initial": 2,
+      "label": "速度",
+      "unit": "m/s",
+      "color": "#dc2626"
+    }
+  ],
+  "parameters": {
+    "m": 1,
+    "B": 1,
+    "L": 1,
+    "R": 2,
+    "drive": 0
+  },
+  "derivatives": {
+    "x": "v",
+    "v": "drive-(B*L)*(B*L)*v/(m*R)"
+  },
+  "observables": {
+    "emf": "B*L*v",
+    "current": "B*L*v/R",
+    "power": "(B*L*v/R)**2*R"
+  },
+  "plot_channels": [
+    "v",
+    "current",
+    "power"
+  ],
+  "visual_bindings": [
+    {
+      "object_id": "rod",
+      "type": "slider",
+      "channel": "x",
+      "label": "导体棒位置"
+    },
+    {
+      "object_id": "rod",
+      "type": "gauge",
+      "channel": "current",
+      "label": "感应电流"
+    }
+  ],
+  "event_conditions": [
+    {
+      "id": "nearly_stopped",
+      "expression": "abs(v)<0.05",
+      "terminal": false
+    }
+  ]
+}
