@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   k12simworld:
     runs-on: ubuntu-latest
@@ -11,11 +14,12 @@ jobs:
       matrix:
         python-version: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: requirements-k12.txt
       - run: python -m pip install -U pip
       - run: python -m pip install -r requirements-k12.txt
       - run: python -m unittest discover -s k12simworld_tests -p "test_*.py" -v
