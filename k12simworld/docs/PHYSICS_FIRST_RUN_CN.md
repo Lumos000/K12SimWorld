@@ -119,8 +119,9 @@ python run_k12simworld.py generate \
 
 ## 5. 评价与预期结果边界
 
-生成 manifest 默认只有执行状态、耗时、token、修复次数和产物路径，`scores` 仍为空。
-因此直接运行 `evaluate` 只能可靠报告执行成功率与成本，质量分会显示 `--`：
+生成 manifest 的金标准/人工 `scores` 默认仍为空；可信领域后端会额外写出候选解答、
+仿真契约、观测 trace 和候选目标验证结果。直接运行 `evaluate` 可可靠报告执行成功率、
+候选目标通过率与成本，但金标准解题/物理/教学质量分仍显示 `--`：
 
 ```bash
 python run_k12simworld.py evaluate \
@@ -130,7 +131,9 @@ python run_k12simworld.py evaluate \
 
 论文级质量结果还需要把自动 Judge、专家或教师评分写入 manifest 的 `scores`，维度与量表见
 `ANNOTATION_PROTOCOL_CN.md`。客观轨迹分数还需要专家参考轨迹和执行器导出的观测轨迹；
-当前仅渲染 MP4 并不等于已经获得可用于 `score-traces` 的状态轨迹。
+candidate-target 方法的可信领域后端会写出 `observed_trace.json`，自由代码后端仍只有视频，
+不能把 MP4 冒充状态轨迹。生成、`score-traces` 与 `evaluate --scores` 的完整命令见
+`CANDIDATE_TARGET_EVALUATION_CN.md`。
 
 因此首轮 smoke 的合理成功标准是：
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Optional
@@ -49,6 +50,11 @@ class CanvasHtmlRenderer:
 
     def _node_env(self) -> dict:
         env = os.environ.copy()
+        python_bin = os.path.dirname(os.path.abspath(sys.executable))
+        path_entries = [item for item in env.get("PATH", "").split(os.pathsep) if item]
+        if python_bin not in path_entries:
+            path_entries.insert(0, python_bin)
+            env["PATH"] = os.pathsep.join(path_entries)
         node_modules_path = os.path.join(self.project_root, "node_modules")
         if os.path.isdir(node_modules_path):
             existing = env.get("NODE_PATH", "")
@@ -63,14 +69,20 @@ class CanvasHtmlRenderer:
             return
 
         try:
-            subprocess.run(["node", "--version"], capture_output=True, text=True, check=True)
+            subprocess.run(
+                ["node", "--version"], capture_output=True, text=True, check=True,
+                env=self._node_env(),
+            )
         except FileNotFoundError as exc:
             raise RenderingError("未检测到 Node.js，请安装 Node.js (建议 v18+) 后重试。") from exc
         except subprocess.CalledProcessError as exc:
             raise RenderingError(f"无法调用 node --version: {exc.stderr or exc.stdout}") from exc
 
         try:
-            subprocess.run(["npm", "--version"], capture_output=True, text=True, check=True)
+            subprocess.run(
+                ["npm", "--version"], capture_output=True, text=True, check=True,
+                env=self._node_env(),
+            )
         except FileNotFoundError as exc:
             raise RenderingError("未检测到 npm，请安装完整的 Node.js 环境（包含 npm）。") from exc
         except subprocess.CalledProcessError as exc:
@@ -189,10 +201,32 @@ class CanvasHtmlRenderer:
 
         for idx, cmd in enumerate(commands, start=1):
             returncode = self.run_and_log(cmd, log_path, cwd=None)
-            if returncode == 0 and os.path.exists(output_path):
+            if (
+                returncode == 0
+                and os.path.exists(output_path)
+                and self._probe_video(output_path, log_path)
+            ):
                 return True
             print(f"[FFmpeg Attempt {idx}] return code {returncode}")
         return False
+
+    def _probe_video(self, video_path: str, log_path: str) -> bool:
+        """Return true only when ffprobe finds a decodable video stream."""
+        if not os.path.exists(video_path) or os.path.getsize(video_path) <= 0:
+            return False
+        command = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,width,height,duration",
+            "-of",
+            "default=noprint_wrappers=1",
+            video_path,
+        ]
+        return self.run_and_log(command, log_path, cwd=None) == 0
 
     def render(self, document: str, output_path: str, content_type: str = "html") -> str:
         """
@@ -258,6 +292,11 @@ class CanvasHtmlRenderer:
                 raise RenderingError("WebM文件未找到", log_path)
 
             self._wait_for_file_stable(webm_path)
+
+            if not self._probe_video(webm_path, log_path):
+                raise RenderingError(
+                    f"WebM文件损坏或不含视频流，详见日志: {log_path}", log_path
+                )
 
             if not self._convert_webm_to_mp4(webm_path, output_path, log_path):
                 raise RenderingError(f"FFmpeg转换失败，详见日志: {log_path}", log_path)

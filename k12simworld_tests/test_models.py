@@ -37,6 +37,24 @@ class ModelsTest(unittest.TestCase):
                 }
             )
 
+    def test_world_spec_reports_field_type_errors(self):
+        with self.assertRaisesRegex(
+            ContractError, "EduWorldSpec.coordinate_system must be a JSON object"
+        ):
+            EduWorldSpec.from_dict(
+                {
+                    "problem_id": "p1",
+                    "coordinate_system": "2-D Cartesian coordinates",
+                    "objects": [{"id": "ball"}],
+                    "parameters": [],
+                    "constraints": [],
+                    "initial_state": {},
+                    "expected_events": [],
+                    "learning_goals": [],
+                    "visual_conventions": {},
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

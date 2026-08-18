@@ -135,7 +135,7 @@ class VisPhyRendererAdapter:
 
             self.renderer = ManimRenderer(output_dir)
             self.content_type = "python"
-        elif engine in {"equation-solver", "circuit-solver", "ray-optics"}:
+        elif engine in {"mechanics-2d", "equation-solver", "circuit-solver", "ray-optics"}:
             from src.domain_canvas_renderer import DomainCanvasRenderer
 
             self.renderer = DomainCanvasRenderer(output_dir)
@@ -154,8 +154,91 @@ class VisPhyRendererAdapter:
 
     def render(self, document: str, output_path: str) -> str:
         if self.content_type == "html":
+            if getattr(self.renderer, "label", "") == "Three.js":
+                document = self._prepare_composite_canvas(document)
             document = self._inject_browser_runtime(document)
         return self.renderer.render(document, output_path, content_type=self.content_type)
+
+    @staticmethod
+    def _prepare_composite_canvas(document: str) -> str:
+        """Split a mixed WebGL/2D canvas and record a deterministic composite.
+
+        Browsers do not allow one canvas to own both WebGL and 2D contexts. Model
+        generated programs commonly create a Three.js renderer and later request a
+        2D context from the same canvas for labels. Redirect that 2D context to a
+        transparent overlay, then copy both layers into a dedicated recording canvas.
+        """
+        context_pattern = re.compile(
+            r"(?P<declaration>(?:const|let|var)\s+(?P<context>[A-Za-z_$][\w$]*)\s*=\s*)"
+            r"(?P<canvas>[A-Za-z_$][\w$]*)\.getContext\(\s*[\x22\x27]2d[\x22\x27]\s*\)\s*;"
+        )
+
+        selected = None
+        for match in context_pattern.finditer(document):
+            canvas_name = match.group("canvas")
+            webgl_use = re.search(
+                rf"new\s+THREE\.WebGLRenderer\s*\([^;]*\b{re.escape(canvas_name)}\b",
+                document,
+                flags=re.DOTALL,
+            )
+            if webgl_use:
+                selected = match
+                break
+        if selected is None:
+            return document
+
+        canvas_name = selected.group("canvas")
+        context_name = selected.group("context")
+        suffix = selected.start()
+        layer_names = f"{canvas_name}_{suffix}"
+        overlay_name = f"__k12Overlay_{layer_names}"
+        composite_name = f"__k12Composite_{layer_names}"
+        composite_context_name = f"__k12CompositeContext_{layer_names}"
+        frame_name = f"__k12CompositeFrame_{layer_names}"
+
+        replacement = f"""const {overlay_name} = document.createElement(\"canvas\");
+{overlay_name}.width = {canvas_name}.width;
+{overlay_name}.height = {canvas_name}.height;
+{overlay_name}.setAttribute(\"data-k12-overlay\", \"true\");
+const __k12Stage_{layer_names} = {canvas_name}.parentElement || document.body;
+if (window.getComputedStyle(__k12Stage_{layer_names}).position === \"static\") {{
+  __k12Stage_{layer_names}.style.position = \"relative\";
+}}
+{canvas_name}.style.position = \"absolute\";
+{canvas_name}.style.left = \"0\";
+{canvas_name}.style.top = \"0\";
+{overlay_name}.style.position = \"absolute\";
+{overlay_name}.style.left = \"0\";
+{overlay_name}.style.top = \"0\";
+{overlay_name}.style.pointerEvents = \"none\";
+__k12Stage_{layer_names}.appendChild({overlay_name});
+const {composite_name} = document.createElement(\"canvas\");
+{composite_name}.width = {canvas_name}.width;
+{composite_name}.height = {canvas_name}.height;
+{composite_name}.setAttribute(\"data-k12-recording\", \"true\");
+{composite_name}.style.position = \"absolute\";
+{composite_name}.style.left = \"-10000px\";
+{composite_name}.style.top = \"0\";
+__k12Stage_{layer_names}.appendChild({composite_name});
+const {composite_context_name} = {composite_name}.getContext(\"2d\");
+function {frame_name}() {{
+  {composite_context_name}.clearRect(0, 0, {composite_name}.width, {composite_name}.height);
+  {composite_context_name}.drawImage({canvas_name}, 0, 0);
+  {composite_context_name}.drawImage({overlay_name}, 0, 0);
+  window.requestAnimationFrame({frame_name});
+}}
+window.requestAnimationFrame({frame_name});
+const {context_name} = {overlay_name}.getContext(\"2d\");"""
+        document = document[: selected.start()] + replacement + document[selected.end() :]
+
+        if "preserveDrawingBuffer" not in document:
+            document = re.sub(
+                r"new\s+THREE\.WebGLRenderer\s*\(\s*\{",
+                "new THREE.WebGLRenderer({preserveDrawingBuffer: true, ",
+                document,
+                count=1,
+            )
+        return document
 
     def _inject_browser_runtime(self, document: str) -> str:
         """Inject only repository-local dependencies and the recording guard."""
@@ -176,7 +259,8 @@ class VisPhyRendererAdapter:
 window.addEventListener('load', () => {
   const start = () => {
     if (window.__k12simRecording || typeof setupRecording !== 'function') return;
-    const canvas = document.querySelector('canvas');
+    const canvas = document.querySelector('[data-k12-recording="true"]') ||
+      document.querySelector('canvas');
     if (!canvas) return;
     window.__k12simRecording = true;
     setupRecording(canvas, %d);

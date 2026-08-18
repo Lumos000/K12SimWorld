@@ -18,5 +18,9 @@
 | direct_code | 否 | 否 | 可选 | 是 |
 | unanchored | 是 | 否 | 是 | 是 |
 | k12simworld_state_anchored | 是 | 是 | 按路由 | 是 |
+| k12simworld_candidate_target | 是 | 候选解答初态/终态/事件 | 按路由 | 是 |
+
+candidate_target 中的目标来自被测模型自己的无答案解题结果，用于评价仿真内部一致性；
+标准答案和专家轨迹只在生成完成后用于独立评价。具体命令见 CANDIDATE_TARGET_EVALUATION_CN.md。
 
 模型和 API 版本、价格、运行日期必须原样写入实验元数据，避免把预览模型名当作稳定接口。

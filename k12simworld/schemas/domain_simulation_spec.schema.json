@@ -3,63 +3,178 @@
   "$id": "https://k12simworld.org/schemas/domain-simulation-spec-1.0.json",
   "title": "K12SimWorld deterministic domain simulation spec",
   "oneOf": [
-    {"$ref": "#/$defs/chargedParticle"},
-    {"$ref": "#/$defs/odeSystem"},
-    {"$ref": "#/$defs/dcCircuit"},
-    {"$ref": "#/$defs/rayOptics"}
+    {
+      "$ref": "#/$defs/mechanics2d"
+    },
+    {
+      "$ref": "#/$defs/chargedParticle"
+    },
+    {
+      "$ref": "#/$defs/odeSystem"
+    },
+    {
+      "$ref": "#/$defs/dcCircuit"
+    },
+    {
+      "$ref": "#/$defs/rayOptics"
+    }
   ],
   "$defs": {
-    "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"},
-    "expressionId": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"},
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    },
+    "expressionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+    },
     "vec2": {
-      "type": "array", "minItems": 2, "maxItems": 2,
-      "items": {"type": "number"}
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number"
+      }
     },
     "vec3": {
-      "type": "array", "minItems": 3, "maxItems": 3,
-      "items": {"type": "number"}
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
     },
     "bounds": {
-      "type": "object", "additionalProperties": false,
-      "required": ["x_min", "x_max", "y_min", "y_max"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x_min",
+        "x_max",
+        "y_min",
+        "y_max"
+      ],
       "properties": {
-        "x_min": {"type": "number"}, "x_max": {"type": "number"},
-        "y_min": {"type": "number"}, "y_max": {"type": "number"}
+        "x_min": {
+          "type": "number"
+        },
+        "x_max": {
+          "type": "number"
+        },
+        "y_min": {
+          "type": "number"
+        },
+        "y_max": {
+          "type": "number"
+        }
       }
     },
     "chargedParticle": {
       "type": "object",
-      "required": ["domain_model", "duration", "dt", "particles"],
+      "required": [
+        "domain_model",
+        "duration",
+        "dt",
+        "particles"
+      ],
       "properties": {
-        "domain_model": {"const": "charged_particle_2d"},
-        "duration": {"type": "number", "exclusiveMinimum": 0},
-        "dt": {"type": "number", "exclusiveMinimum": 0},
-        "playback_duration": {"type": "number", "minimum": 1, "maximum": 30},
-        "electric_field": {"$ref": "#/$defs/vec2"},
-        "magnetic_field": {"$ref": "#/$defs/vec3"},
-        "bounds": {"$ref": "#/$defs/bounds"},
+        "domain_model": {
+          "const": "charged_particle_2d"
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "playback_duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "electric_field": {
+          "$ref": "#/$defs/vec2"
+        },
+        "magnetic_field": {
+          "$ref": "#/$defs/vec3"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
         "field_regions": {
-          "type": "array", "maxItems": 32,
+          "type": "array",
+          "maxItems": 32,
           "items": {
-            "type": "object", "required": ["id", "bounds"],
+            "type": "object",
+            "required": [
+              "id",
+              "bounds"
+            ],
             "properties": {
-              "id": {"$ref": "#/$defs/id"}, "bounds": {"$ref": "#/$defs/bounds"},
-              "electric_field": {"$ref": "#/$defs/vec2"},
-              "magnetic_field": {"$ref": "#/$defs/vec3"},
-              "mode": {"enum": ["add", "override"]},
-              "label": {"type": "string"}, "color": {"type": "string"}
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "bounds": {
+                "$ref": "#/$defs/bounds"
+              },
+              "electric_field": {
+                "$ref": "#/$defs/vec2"
+              },
+              "magnetic_field": {
+                "$ref": "#/$defs/vec3"
+              },
+              "mode": {
+                "enum": [
+                  "add",
+                  "override"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
             }
           }
         },
         "particles": {
-          "type": "array", "minItems": 1, "maxItems": 32,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
-            "type": "object", "required": ["id", "mass", "charge", "position", "velocity"],
+            "type": "object",
+            "required": [
+              "id",
+              "mass",
+              "charge",
+              "position",
+              "velocity"
+            ],
             "properties": {
-              "id": {"$ref": "#/$defs/id"}, "mass": {"type": "number", "exclusiveMinimum": 0},
-              "charge": {"type": "number"}, "position": {"$ref": "#/$defs/vec2"},
-              "velocity": {"$ref": "#/$defs/vec2"}, "label": {"type": "string"},
-              "color": {"type": "string"}
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "mass": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "charge": {
+                "type": "number"
+              },
+              "position": {
+                "$ref": "#/$defs/vec2"
+              },
+              "velocity": {
+                "$ref": "#/$defs/vec2"
+              },
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
             }
           }
         }
@@ -67,82 +182,208 @@
     },
     "odeSystem": {
       "type": "object",
-      "required": ["domain_model", "duration", "dt", "variables", "derivatives"],
+      "required": [
+        "domain_model",
+        "duration",
+        "dt",
+        "variables",
+        "derivatives"
+      ],
       "properties": {
-        "domain_model": {"const": "ode_system"},
-        "duration": {"type": "number", "exclusiveMinimum": 0},
-        "dt": {"type": "number", "exclusiveMinimum": 0},
-        "playback_duration": {"type": "number", "minimum": 1, "maximum": 30},
+        "domain_model": {
+          "const": "ode_system"
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "dt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "playback_duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30
+        },
         "objects": {
-          "type": "array", "maxItems": 32,
+          "type": "array",
+          "maxItems": 32,
           "items": {
-            "type": "object", "required": ["id"],
+            "type": "object",
+            "required": [
+              "id"
+            ],
             "properties": {
-              "id": {"$ref": "#/$defs/id"}, "label": {"type": "string"},
-              "kind": {"type": "string"}, "color": {"type": "string"}
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "label": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
             }
           }
         },
         "variables": {
-          "type": "array", "minItems": 1, "maxItems": 32,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
-            "type": "object", "required": ["id", "initial"],
+            "type": "object",
+            "required": [
+              "id",
+              "initial"
+            ],
             "properties": {
-              "id": {"$ref": "#/$defs/expressionId"}, "initial": {"type": "number"},
-              "label": {"type": "string"}, "unit": {"type": "string"},
-              "color": {"type": "string"}
+              "id": {
+                "$ref": "#/$defs/expressionId"
+              },
+              "initial": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
             }
           }
         },
         "parameters": {
-          "type": "object", "maxProperties": 64,
-          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"},
-          "additionalProperties": {"type": "number"}
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "number"
+          }
         },
         "derivatives": {
-          "type": "object", "minProperties": 1, "maxProperties": 32,
-          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"},
-          "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 512}
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         },
         "observables": {
-          "type": "object", "maxProperties": 64,
-          "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"},
-          "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 512}
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
         },
         "plot_channels": {
-          "type": "array", "minItems": 1, "maxItems": 32,
-          "items": {"$ref": "#/$defs/expressionId"}
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/expressionId"
+          }
         },
         "visual_bindings": {
-          "type": "array", "maxItems": 12,
+          "type": "array",
+          "maxItems": 12,
           "items": {
-            "type": "object", "required": ["object_id", "type", "channel"],
+            "type": "object",
+            "required": [
+              "object_id",
+              "type",
+              "channel"
+            ],
             "properties": {
-              "object_id": {"$ref": "#/$defs/id"},
-              "type": {"enum": ["slider", "gauge", "rotor", "lamp"]},
-              "channel": {"$ref": "#/$defs/expressionId"}, "label": {"type": "string"},
-              "minimum": {"type": "number"}, "maximum": {"type": "number"}
+              "object_id": {
+                "$ref": "#/$defs/id"
+              },
+              "type": {
+                "enum": [
+                  "slider",
+                  "gauge",
+                  "rotor",
+                  "lamp"
+                ]
+              },
+              "channel": {
+                "$ref": "#/$defs/expressionId"
+              },
+              "label": {
+                "type": "string"
+              },
+              "minimum": {
+                "type": "number"
+              },
+              "maximum": {
+                "type": "number"
+              }
             }
           }
         },
         "actions": {
-          "type": "array", "maxItems": 64,
+          "type": "array",
+          "maxItems": 64,
           "items": {
-            "type": "object", "required": ["time", "target", "value"],
+            "type": "object",
+            "required": [
+              "time",
+              "target",
+              "value"
+            ],
             "properties": {
-              "time": {"type": "number", "minimum": 0},
-              "target": {"$ref": "#/$defs/expressionId"}, "value": {"type": "number"}
+              "time": {
+                "type": "number",
+                "minimum": 0
+              },
+              "target": {
+                "$ref": "#/$defs/expressionId"
+              },
+              "value": {
+                "type": "number"
+              }
             }
           }
         },
         "event_conditions": {
-          "type": "array", "maxItems": 64,
+          "type": "array",
+          "maxItems": 64,
           "items": {
-            "type": "object", "required": ["id", "expression"],
+            "type": "object",
+            "required": [
+              "id",
+              "expression"
+            ],
             "properties": {
-              "id": {"$ref": "#/$defs/id"},
-              "expression": {"type": "string", "minLength": 1, "maxLength": 512},
-              "terminal": {"type": "boolean"}
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "expression": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "terminal": {
+                "type": "boolean"
+              }
             }
           }
         }
@@ -150,81 +391,682 @@
     },
     "node": {
       "oneOf": [
-        {"$ref": "#/$defs/id"},
         {
-          "type": "object", "required": ["id"],
+          "$ref": "#/$defs/id"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id"
+          ],
           "properties": {
-            "id": {"$ref": "#/$defs/id"}, "x": {"type": "number"},
-            "y": {"type": "number"}, "label": {"type": "string"}
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "label": {
+              "type": "string"
+            }
           }
         }
       ]
     },
     "component": {
-      "type": "object", "required": ["id", "type", "node_a", "node_b"],
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "node_a",
+        "node_b"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/id"},
-        "type": {"enum": ["resistor", "lamp", "ammeter", "voltmeter", "switch", "wire", "voltage_source", "current_source"]},
-        "node_a": {"$ref": "#/$defs/id"}, "node_b": {"$ref": "#/$defs/id"},
-        "resistance": {"type": "number", "exclusiveMinimum": 0},
-        "voltage": {"type": "number"}, "current": {"type": "number"},
-        "rated_power": {"type": "number", "exclusiveMinimum": 0},
-        "closed": {"type": "boolean"}, "label": {"type": "string"}
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "enum": [
+            "resistor",
+            "lamp",
+            "ammeter",
+            "voltmeter",
+            "switch",
+            "wire",
+            "voltage_source",
+            "current_source"
+          ]
+        },
+        "node_a": {
+          "$ref": "#/$defs/id"
+        },
+        "node_b": {
+          "$ref": "#/$defs/id"
+        },
+        "resistance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "voltage": {
+          "type": "number"
+        },
+        "current": {
+          "type": "number"
+        },
+        "rated_power": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        }
       }
     },
     "dcCircuit": {
-      "type": "object", "required": ["domain_model", "ground", "nodes", "components"],
+      "type": "object",
+      "required": [
+        "domain_model",
+        "ground",
+        "nodes",
+        "components"
+      ],
       "properties": {
-        "domain_model": {"const": "dc_circuit"},
-        "duration": {"type": "number", "exclusiveMinimum": 0, "maximum": 30},
-        "dt": {"type": "number", "exclusiveMinimum": 0},
-        "ground": {"$ref": "#/$defs/id"},
-        "nodes": {"type": "array", "minItems": 2, "maxItems": 64, "items": {"$ref": "#/$defs/node"}},
-        "components": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/component"}},
-        "actions": {
-          "type": "array", "maxItems": 128,
+        "domain_model": {
+          "const": "dc_circuit"
+        },
+        "duration": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 30
+        },
+        "dt": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "ground": {
+          "$ref": "#/$defs/id"
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
           "items": {
-            "type": "object", "required": ["time", "target", "property", "value"],
+            "$ref": "#/$defs/node"
+          }
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/component"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "required": [
+              "time",
+              "target",
+              "property",
+              "value"
+            ],
             "properties": {
-              "time": {"type": "number", "minimum": 0}, "target": {"$ref": "#/$defs/id"},
-              "property": {"enum": ["closed", "resistance", "voltage", "current", "rated_power"]},
-              "value": {"type": ["number", "boolean"]}
+              "time": {
+                "type": "number",
+                "minimum": 0
+              },
+              "target": {
+                "$ref": "#/$defs/id"
+              },
+              "property": {
+                "enum": [
+                  "closed",
+                  "resistance",
+                  "voltage",
+                  "current",
+                  "rated_power"
+                ]
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "boolean"
+                ]
+              }
             }
           }
         }
       }
     },
     "opticalElement": {
-      "type": "object", "required": ["id", "type"],
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/id"},
-        "type": {"enum": ["mirror", "refractive_interface", "thin_lens", "screen", "absorber"]},
-        "p1": {"$ref": "#/$defs/vec2"}, "p2": {"$ref": "#/$defs/vec2"},
-        "x": {"type": "number"}, "optical_axis_y": {"type": "number"},
-        "aperture": {"type": "number", "exclusiveMinimum": 0},
-        "focal_length": {"type": "number"}, "n1": {"type": "number", "exclusiveMinimum": 0},
-        "n2": {"type": "number", "exclusiveMinimum": 0}, "label": {"type": "string"}
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "enum": [
+            "mirror",
+            "refractive_interface",
+            "thin_lens",
+            "screen",
+            "absorber"
+          ]
+        },
+        "p1": {
+          "$ref": "#/$defs/vec2"
+        },
+        "p2": {
+          "$ref": "#/$defs/vec2"
+        },
+        "x": {
+          "type": "number"
+        },
+        "optical_axis_y": {
+          "type": "number"
+        },
+        "aperture": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "focal_length": {
+          "type": "number"
+        },
+        "n1": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "n2": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "label": {
+          "type": "string"
+        }
       }
     },
     "rayOptics": {
-      "type": "object", "required": ["domain_model", "sources", "elements"],
+      "type": "object",
+      "required": [
+        "domain_model",
+        "sources",
+        "elements"
+      ],
       "properties": {
-        "domain_model": {"const": "geometric_ray_2d"},
-        "max_interactions": {"type": "integer", "minimum": 1, "maximum": 32},
-        "max_distance": {"type": "number", "exclusiveMinimum": 0},
+        "domain_model": {
+          "const": "geometric_ray_2d"
+        },
+        "max_interactions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "max_distance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "sources": {
-          "type": "array", "minItems": 1, "maxItems": 32,
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
-            "type": "object", "required": ["id", "origin", "direction"],
+            "type": "object",
+            "required": [
+              "id",
+              "origin",
+              "direction"
+            ],
             "properties": {
-              "id": {"$ref": "#/$defs/id"}, "origin": {"$ref": "#/$defs/vec2"},
-              "direction": {"$ref": "#/$defs/vec2"},
-              "refractive_index": {"type": "number", "exclusiveMinimum": 0},
-              "label": {"type": "string"}, "color": {"type": "string"}
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "origin": {
+                "$ref": "#/$defs/vec2"
+              },
+              "direction": {
+                "$ref": "#/$defs/vec2"
+              },
+              "refractive_index": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
             }
           }
         },
-        "elements": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/opticalElement"}}
+        "elements": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/opticalElement"
+          }
+        }
+      }
+    },
+    "mechanicsBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "shape",
+        "position"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "shape": {
+          "enum": [
+            "circle",
+            "box",
+            "rod"
+          ]
+        },
+        "motion_type": {
+          "enum": [
+            "dynamic",
+            "static",
+            "kinematic"
+          ]
+        },
+        "mass": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "position": {
+          "$ref": "#/$defs/vec2"
+        },
+        "velocity": {
+          "$ref": "#/$defs/vec2"
+        },
+        "angle": {
+          "type": "number"
+        },
+        "angular_velocity": {
+          "type": "number"
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "collision_radius": {
+          "type": "number",
+          "minimum": 0
+        },
+        "size": {
+          "$ref": "#/$defs/vec2"
+        },
+        "restitution": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "friction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "linear_damping": {
+          "type": "number",
+          "minimum": 0
+        },
+        "label": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string"
+        }
+      }
+    },
+    "mechanicsEndpoint": {
+      "type": "object",
+      "properties": {
+        "body_a": {
+          "$ref": "#/$defs/id"
+        },
+        "body_b": {
+          "$ref": "#/$defs/id"
+        },
+        "anchor_a": {
+          "$ref": "#/$defs/vec2"
+        },
+        "anchor_b": {
+          "$ref": "#/$defs/vec2"
+        }
+      }
+    },
+    "mechanics2d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain_model",
+        "bodies"
+      ],
+      "properties": {
+        "domain_model": {
+          "const": "mechanics_2d"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 30
+        },
+        "dt": {
+          "type": "number",
+          "minimum": 1e-05,
+          "maximum": 0.1
+        },
+        "playback_duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "gravity": {
+          "$ref": "#/$defs/vec2"
+        },
+        "potential_reference": {
+          "$ref": "#/$defs/vec2"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "units": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "bodies": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/mechanicsBody"
+          }
+        },
+        "static_geometry": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "p1",
+              "p2"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "type": {
+                "const": "segment"
+              },
+              "p1": {
+                "$ref": "#/$defs/vec2"
+              },
+              "p2": {
+                "$ref": "#/$defs/vec2"
+              },
+              "normal": {
+                "$ref": "#/$defs/vec2"
+              },
+              "friction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "restitution": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "springs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/mechanicsEndpoint"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "stiffness"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "stiffness": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "damping": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "rest_length": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "color": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "distance_constraints": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/mechanicsEndpoint"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "length": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "color": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "forces": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "target",
+              "force"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "target": {
+                "$ref": "#/$defs/id"
+              },
+              "force": {
+                "$ref": "#/$defs/vec2"
+              },
+              "start_time": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end_time": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": [
+              "time",
+              "type",
+              "target",
+              "value"
+            ],
+            "properties": {
+              "time": {
+                "type": "number",
+                "minimum": 0
+              },
+              "type": {
+                "enum": [
+                  "impulse",
+                  "set_velocity",
+                  "set_angular_velocity"
+                ]
+              },
+              "target": {
+                "$ref": "#/$defs/id"
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "$ref": "#/$defs/vec2"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "terminal_contact": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "visual_instances": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "source_object_id",
+              "view",
+              "panel"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "source_object_id": {
+                "$ref": "#/$defs/id"
+              },
+              "view": {
+                "enum": [
+                  "full",
+                  "horizontal_projection",
+                  "vertical_projection"
+                ]
+              },
+              "panel": {
+                "enum": [
+                  "main",
+                  "left",
+                  "right",
+                  "top",
+                  "bottom"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "color": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "show_trail": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "annotations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "target"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "trail",
+                  "velocity_arrow",
+                  "force_arrow",
+                  "label"
+                ]
+              },
+              "target": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          }
+        }
       }
     }
   }

@@ -15,8 +15,9 @@ import math
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Sequence, Tuple
 
 
-DOMAIN_ENGINES = {"equation-solver", "circuit-solver", "ray-optics"}
+DOMAIN_ENGINES = {"mechanics-2d", "equation-solver", "circuit-solver", "ray-optics"}
 DOMAIN_MODELS = {
+    "mechanics-2d": {"mechanics_2d"},
     "equation-solver": {"charged_particle_2d", "ode_system"},
     "circuit-solver": {"dc_circuit"},
     "ray-optics": {"geometric_ray_2d"},
@@ -110,6 +111,9 @@ def simulate_domain(engine: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
         raise DomainSimulationError(
             f"engine {engine!r} requires one of {sorted(expected_models)!r}, got {model!r}"
         )
+    if engine == "mechanics-2d":
+        from .mechanics_2d import simulate_mechanics_2d
+        return simulate_mechanics_2d(spec)
     if engine == "equation-solver":
         return simulate_charged_particles(spec) if model == "charged_particle_2d" else simulate_ode_system(spec)
     if engine == "circuit-solver":
@@ -119,7 +123,9 @@ def simulate_domain(engine: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
 
 def domain_entity_ids(engine: str, spec: Mapping[str, Any]) -> set[str]:
     """Return model-controlled physical entity ids that must exist in WorldSpec."""
-    if engine == "equation-solver":
+    if engine == "mechanics-2d":
+        values = [*(spec.get("bodies") or []), *(spec.get("static_geometry") or [])]
+    elif engine == "equation-solver":
         if spec.get("domain_model") == "charged_particle_2d":
             values = spec.get("particles") or []
         else:

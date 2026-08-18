@@ -8,11 +8,16 @@ import html
 import json
 from typing import Any, Dict, List, Mapping
 
-from .domain_solvers import DOMAIN_ENGINES, DomainSimulationError, simulate_domain
+from .domain_solvers import (
+    DOMAIN_ENGINES,
+    DomainSimulationError,
+    domain_entity_ids,
+    simulate_domain,
+)
 from .models import EduWorldSpec
 
 
-SOLVER_VERSION = "k12-domain-solvers-v1.1"
+SOLVER_VERSION = "k12-domain-solvers-v1.7-quadratic-contact"
 
 
 def canonical_sha256(value: Any) -> str:
@@ -71,6 +76,48 @@ function arrow(x1,y1,x2,y2,color='#334155'){{ctx.strokeStyle=color;ctx.fillStyle
 {drawing_script}
 requestAnimationFrame(draw);
 </script></body></html>"""
+
+
+def _mechanics_html(spec: Mapping[str, Any], trace: Mapping[str, Any], ids: List[str]) -> str:
+    script = r"""
+const b=TRACE.bounds,pad=48;
+const sx=x=>pad+(x-b.x_min)/(b.x_max-b.x_min)*(W-2*pad);
+const sy=y=>H-pad-(y-b.y_min)/(b.y_max-b.y_min)*(H-2*pad);
+const scale=Math.min((W-2*pad)/(b.x_max-b.x_min),(H-2*pad)/(b.y_max-b.y_min));
+const frames=TRACE.time_series, byBody=Object.fromEntries(TRACE.bodies.map(body=>[body.id,body]));
+const annotation=(type,id)=>(TRACE.annotations||[]).some(item=>item.type===type&&item.target===id);
+const visualInstances=TRACE.visual_instances||[];
+const panelMode=visualInstances.length>0;
+function point(link,suffix,frame){const id=link['body_'+suffix];return id?frame.objects[id].position:link['anchor_'+suffix];}
+function linkLine(link,frame,color,dashed=false){const a=point(link,'a',frame),b=point(link,'b',frame);ctx.save();ctx.strokeStyle=color;ctx.lineWidth=2;if(dashed)ctx.setLineDash([7,5]);ctx.beginPath();ctx.moveTo(sx(a[0]),sy(a[1]));ctx.lineTo(sx(b[0]),sy(b[1]));ctx.stroke();ctx.restore();}
+function drawBody(body,state){const x=sx(state.position[0]),y=sy(state.position[1]);ctx.save();ctx.translate(x,y);ctx.rotate(-state.angle);ctx.fillStyle=body.color;ctx.strokeStyle='#0f172a';ctx.lineWidth=2;
+  if(body.shape==='circle'){ctx.beginPath();ctx.arc(0,0,Math.max(5,body.radius*scale),0,Math.PI*2);ctx.fill();ctx.stroke();}
+  else{const width=Math.max(8,body.size[0]*scale),height=Math.max(6,body.size[1]*scale);ctx.fillRect(-width/2,-height/2,width,height);ctx.strokeRect(-width/2,-height/2,width,height);}
+  ctx.restore();text(body.label,x,y-Math.max(12,(body.radius||body.size?.[1]/2||.2)*scale)-7,'#0f172a',11,'center');
+  if(annotation('velocity_arrow',body.id)){const vx=state.velocity[0],vy=state.velocity[1],mag=Math.hypot(vx,vy);if(mag>1e-8)arrow(x,y,x+vx/mag*36,y-vy/mag*36,'#dc2626');}
+  if(annotation('force_arrow',body.id)){const fx=state.net_force[0],fy=state.net_force[1],mag=Math.hypot(fx,fy);if(mag>1e-8)arrow(x,y,x+fx/mag*34,y-fy/mag*34,'#16a34a');}
+}
+function panelRect(name){if(name==='left')return {x:24,y:72,w:220,h:370};if(name==='right')return {x:268,y:72,w:220,h:370};if(name==='top')return {x:48,y:58,w:416,h:190};if(name==='bottom')return {x:48,y:278,w:416,h:190};return {x:48,y:58,w:416,h:410};}
+function projectedPoint(instance,position,rect){const ux=Math.max(0,Math.min(1,(position[0]-b.x_min)/(b.x_max-b.x_min))),uy=Math.max(0,Math.min(1,(position[1]-b.y_min)/(b.y_max-b.y_min)));let x=rect.x+18+ux*(rect.w-36),y=rect.y+rect.h-24-uy*(rect.h-54);if(instance.view==='horizontal_projection')y=rect.y+rect.h*.58;if(instance.view==='vertical_projection')x=rect.x+rect.w*.5;return [x,y];}
+function drawVisualInstance(instance,frame,idx){
+  const rect=panelRect(instance.panel),body=byBody[instance.source_object_id],state=frame.objects[instance.source_object_id];if(!body||!state)return;
+  ctx.save();ctx.fillStyle='#ffffff';ctx.strokeStyle='#cbd5e1';ctx.lineWidth=1;ctx.fillRect(rect.x,rect.y,rect.w,rect.h);ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);ctx.beginPath();ctx.rect(rect.x+1,rect.y+1,rect.w-2,rect.h-2);ctx.clip();
+  if(instance.show_trail){ctx.strokeStyle=instance.color;ctx.globalAlpha=.45;ctx.lineWidth=2;ctx.beginPath();for(let j=0;j<=idx;j++){const p=projectedPoint(instance,frames[j].objects[instance.source_object_id].position,rect);if(j===0)ctx.moveTo(p[0],p[1]);else ctx.lineTo(p[0],p[1]);}ctx.stroke();ctx.globalAlpha=1;}
+  const p=projectedPoint(instance,state.position,rect);ctx.fillStyle=instance.color;ctx.strokeStyle='#0f172a';ctx.lineWidth=2;if(body.shape==='circle'){ctx.beginPath();ctx.arc(p[0],p[1],Math.max(6,Math.min(14,body.radius*scale)),0,Math.PI*2);ctx.fill();ctx.stroke();}else{ctx.fillRect(p[0]-10,p[1]-7,20,14);ctx.strokeRect(p[0]-10,p[1]-7,20,14);}
+  if(annotation('velocity_arrow',body.id)){let vx=state.velocity[0],vy=state.velocity[1];if(instance.view==='horizontal_projection')vy=0;if(instance.view==='vertical_projection')vx=0;const mag=Math.hypot(vx,vy);if(mag>1e-8)arrow(p[0],p[1],p[0]+vx/mag*34,p[1]-vy/mag*34,'#dc2626');}
+  ctx.restore();text(instance.label,rect.x+rect.w/2,rect.y+20,'#0f172a',13,'center');const quantity=instance.view==='vertical_projection'?'y='+state.position[1]:instance.view==='horizontal_projection'?'x='+state.position[0]:'x='+state.position[0]+', y='+state.position[1];text(quantity,rect.x+rect.w/2,rect.y+rect.h-10,'#475569',11,'center');
+}
+function draw(){clear();const duration=Math.max(TRACE.playback_duration||8,.001),elapsed=((performance.now()-started)/1000)%duration,idx=Math.min(frames.length-1,Math.floor(elapsed/duration*frames.length)),frame=frames[idx];
+  ctx.strokeStyle='#e2e8f0';ctx.lineWidth=1;for(let i=0;i<=10;i++){const x=pad+i*(W-2*pad)/10;ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,H-pad);ctx.stroke();const y=pad+i*(H-2*pad)/10;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-pad,y);ctx.stroke();}ctx.strokeStyle='#94a3b8';ctx.strokeRect(pad,pad,W-2*pad,H-2*pad);
+  text('声明式二维力学 · 可信求解',16,24,'#0f172a',17);text(`t=${frame.t}s`,W-16,24,'#475569',13,'right');
+  if(panelMode){visualInstances.forEach(instance=>drawVisualInstance(instance,frame,idx));text('视觉实例共享同一物理状态',W/2,H-15,'#64748b',11,'center');requestAnimationFrame(draw);return;}
+  TRACE.static_geometry.forEach(segment=>{ctx.strokeStyle=segment.color;ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(sx(segment.p1[0]),sy(segment.p1[1]));ctx.lineTo(sx(segment.p2[0]),sy(segment.p2[1]));ctx.stroke();text(segment.label,(sx(segment.p1[0])+sx(segment.p2[0]))/2,(sy(segment.p1[1])+sy(segment.p2[1]))/2+18,'#475569',10,'center');});
+  (TRACE.springs||[]).forEach(link=>linkLine(link,frame,link.color));(TRACE.distance_constraints||[]).forEach(link=>linkLine(link,frame,link.color,true));
+  TRACE.bodies.forEach(body=>{if(annotation('trail',body.id)){ctx.strokeStyle=body.color;ctx.globalAlpha=.45;ctx.lineWidth=2;ctx.beginPath();for(let j=0;j<=idx;j++){const p=frames[j].objects[body.id].position;if(j===0)ctx.moveTo(sx(p[0]),sy(p[1]));else ctx.lineTo(sx(p[0]),sy(p[1]));}ctx.stroke();ctx.globalAlpha=1;}});
+  TRACE.bodies.forEach(body=>drawBody(body,frame.objects[body.id]));
+  const labels=[];if((TRACE.annotations||[]).some(a=>a.type==='velocity_arrow'))labels.push('红: 速度');if((TRACE.annotations||[]).some(a=>a.type==='force_arrow'))labels.push('绿: 合力');text(labels.join('   '),16,H-16,'#475569',11);requestAnimationFrame(draw);}
+"""
+    return _shell("Deterministic declarative 2-D mechanics", "mechanics-2d", spec, trace, ids, script)
 
 
 def _equation_html(spec: Mapping[str, Any], trace: Mapping[str, Any], ids: List[str]) -> str:
@@ -199,6 +246,8 @@ def render_domain_html(
     trace: Mapping[str, Any],
     world_object_ids: List[str],
 ) -> str:
+    if engine == "mechanics-2d":
+        return _mechanics_html(spec, trace, world_object_ids)
     if engine == "equation-solver":
         if trace.get("domain_model") == "ode_system":
             return _ode_html(spec, trace, world_object_ids)
@@ -208,6 +257,45 @@ def render_domain_html(
     if engine == "ray-optics":
         return _optics_html(spec, trace, world_object_ids)
     raise DomainSimulationError(f"unsupported domain engine {engine!r}")
+
+
+def _apply_world_semantics(
+    engine: str, simulation_spec: Mapping[str, Any], world_spec: EduWorldSpec
+) -> Dict[str, Any]:
+    """Bind solver geometry to canonical WorldSpec semantics."""
+    result = copy.deepcopy(dict(simulation_spec))
+    if engine != "mechanics-2d":
+        return result
+
+    object_types = {
+        str(item.get("id")): str(item.get("type") or "").strip().lower()
+        for item in world_spec.objects
+        if isinstance(item, Mapping) and item.get("id")
+    }
+    bodies = result.get("bodies")
+    if isinstance(bodies, list):
+        for body in bodies:
+            if not isinstance(body, dict):
+                continue
+            if (
+                object_types.get(str(body.get("id"))) in {"particle", "point", "point_mass"}
+                and "collision_radius" not in body
+            ):
+                # K-12 particle problems use radius for visibility only; the
+                # canonical position is the point that reaches the boundary.
+                body["collision_radius"] = 0.0
+
+    terminal = world_spec.terminal_event
+    participants = terminal.get("participants") if isinstance(terminal, Mapping) else None
+    entity_ids = domain_entity_ids(engine, result)
+    if (
+        isinstance(participants, list)
+        and len(participants) == 2
+        and str(terminal.get("type") or "") in {"contact", "collision"}
+        and {str(item) for item in participants}.issubset(entity_ids)
+    ):
+        result.setdefault("terminal_contact", [str(item) for item in participants])
+    return result
 
 
 def compile_domain_program(
@@ -227,11 +315,12 @@ def compile_domain_program(
         if not isinstance(raw_scene, Mapping):
             raise DomainSimulationError(f"scenes[{index}] must be an object")
         scene = dict(raw_scene)
-        simulation_spec = scene.get("simulation_spec")
-        if not isinstance(simulation_spec, Mapping):
+        raw_simulation_spec = scene.get("simulation_spec")
+        if not isinstance(raw_simulation_spec, Mapping):
             raise DomainSimulationError(f"scenes[{index}] requires simulation_spec")
+        simulation_spec = _apply_world_semantics(engine, raw_simulation_spec, world_spec)
         trace = simulate_domain(engine, simulation_spec)
-        scene["simulation_spec"] = dict(simulation_spec)
+        scene["simulation_spec"] = simulation_spec
         scene["trace"] = trace
         scene["trace_sha256"] = canonical_sha256(trace)
         scene["solver_version"] = SOLVER_VERSION

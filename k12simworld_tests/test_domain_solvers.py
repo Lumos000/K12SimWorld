@@ -358,7 +358,22 @@ class DomainIntegrationTest(unittest.TestCase):
                 {"block_id": "SIM_1", "kind": "sim", "content": "闭合开关"},
             ],
         }
-        spec = world("c1", ["battery", "lamp", "S1"])
+        spec_dict = world("c1", ["battery", "lamp", "S1"]).to_dict()
+        spec_dict["target_observables"] = [
+            {
+                "id": "lamp_bright",
+                "scene_id": "SIM_1",
+                "at": "final",
+                "path": "trace.summary.components.lamp.brightness",
+                "expected": 1.0,
+                "operator": "approximately_equal",
+                "unit": "1",
+                "absolute_tolerance": 0.01,
+                "relative_tolerance": 0.01,
+                "required": True,
+            }
+        ]
+        spec = EduWorldSpec.from_dict(spec_dict)
         program = {
             "engine": "circuit-solver",
             "render_spec": {"engine": "circuit-solver", "fps": 30, "duration": 2},

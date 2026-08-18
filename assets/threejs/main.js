@@ -20,9 +20,11 @@ async function recordAnimation(folderPath) {
     try {
         const page = await browser.newPage();
         let recordingComplete = false;
+        let pageError = null;
 
         // 立即设置事件监听器
         page.on("pageerror", err => {
+            pageError = err;
             console.log(`[PAGE ERROR] ${err.message}`);
             console.log(`[PAGE ERROR] ${err.stack}`);
         });
@@ -36,6 +38,7 @@ async function recordAnimation(folderPath) {
         });
 
         page.on('error', err => {
+            pageError = err;
             console.log(`[ERROR] ${err.message}`);
         });
 
@@ -62,6 +65,10 @@ async function recordAnimation(folderPath) {
         // 等待一点时间让 JavaScript 执行
         await new Promise(resolve => setTimeout(resolve, 200));
 
+        if (pageError) {
+            throw new Error(`Page JavaScript failed: ${pageError.message}`);
+        }
+
         // 智能等待录制完成 - 检查控制台输出 + 轮询文件落盘
         let waitTime = 0;
         const maxWaitTime = 120000; // 最多等待120秒（支持更长录制）
@@ -69,6 +76,9 @@ async function recordAnimation(folderPath) {
 
         // 轮询等待录制完成
         while (!recordingComplete && waitTime < maxWaitTime) {
+            if (pageError) {
+                throw new Error(`Page JavaScript failed: ${pageError.message}`);
+            }
             await new Promise(resolve => setTimeout(resolve, fsPollInterval));
             waitTime += fsPollInterval;
             try {
@@ -110,6 +120,7 @@ async function recordAnimation(folderPath) {
 
     } catch (error) {
         console.error('An error occurred:', error);
+        process.exitCode = 1;
     } finally {
         await browser.close();
     }
@@ -122,4 +133,7 @@ if (!folderPath) {
     process.exit(2);
 }
 
-recordAnimation(folderPath).catch(console.error);
+recordAnimation(folderPath).catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+});

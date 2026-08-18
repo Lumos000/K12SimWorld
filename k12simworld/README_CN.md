@@ -13,8 +13,8 @@ K12SimWorld 将 VisPhyWorld 的“可执行假设”迁移到 K12 多模态教�
 - `models.py`：K12 问题、storyboard、EduWorldSpec 和 manifest 契约。
 - `curation.py`：动态适用性筛选、240 题分层抽样、60 题专家子集和知识点隔离划分。
 - `pipeline.py`：教学规划 → WorldSpec → 状态锚定程序 → 一次修复 → 可选渲染。
-- `routing.py`：刚体、方程、电路、光学、P5.js 和 Manim 的确定性路由。
-- `domain_solvers.py`：带电粒子、受限 ODE、直流电路和二维几何光学可信求解器。
+- `routing.py`：2D 默认、可审计 3D 门控，以及方程、电路、光学、P5.js 和 Manim 路由。
+- `mechanics_2d.py` / `domain_solvers.py`：二维力学、带电粒子、受限 ODE、直流电路和几何光学可信求解器。
 - `domain_compiler.py`：把声明式场景执行为 trace，并编译成固定 Canvas 教学页面。
 - `evaluation/`：三类综合分、成功率、人工一致性、置信区间和论文表格。
 - `schemas/`：公开 JSON Schema。
@@ -56,7 +56,8 @@ python run_k12simworld.py prepare-human-selection \
 ```
 
 当前人工物理集的分阶段运行方法和预期产物见
-`docs/PHYSICS_FIRST_RUN_CN.md`；第二、三层求解器见 `docs/DOMAIN_SOLVERS_CN.md`。
+`docs/PHYSICS_FIRST_RUN_CN.md`；候选解答约束仿真及完整评测命令见 `docs/CANDIDATE_TARGET_EVALUATION_CN.md`；
+声明式求解器见 `docs/DOMAIN_SOLVERS_CN.md`，职责划分与 3D 门控见 `docs/ARCHITECTURE_2D_FIRST_CN.md`。
 
 `curate` 输出：
 
@@ -98,6 +99,7 @@ python run_k12simworld.py generate-baseline \
 - `direct_code`
 - `unanchored`
 - `k12simworld_state_anchored`
+- `k12simworld_candidate_target`（当前主方法）
 
 Judge 或人工评分写入 manifest 的 `scores`。评分采用 0–100；0–1 会自动换算。失败项目的全部维度强制为 0。不要删除失败样本。
 

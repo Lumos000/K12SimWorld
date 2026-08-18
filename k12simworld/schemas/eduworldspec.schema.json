@@ -64,6 +64,90 @@
       }
     },
     "final_state": {"type": "object"},
+    "terminal_event": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"type": "string"},
+        "participants": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "target_observables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "expected"],
+        "oneOf": [
+          {"required": ["path"], "not": {"required": ["expression"]}},
+          {
+            "required": ["expression", "bindings"],
+            "not": {"required": ["path"]}
+          }
+        ],
+        "properties": {
+          "id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "at": {"type": ["string", "object"]},
+          "path": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$"
+          },
+          "expression": {"type": "string", "minLength": 1, "maxLength": 512},
+          "bindings": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 32,
+            "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+            "additionalProperties": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*([.](?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$"}
+          },
+          "display_formula": {"type": "string", "maxLength": 2000},
+          "expected": {},
+          "operator": {"type": "string"},
+          "unit": {"type": ["string", "null"]},
+          "result_unit": {"type": ["string", "null"]},
+          "absolute_tolerance": {"type": "number", "minimum": 0},
+          "relative_tolerance": {"type": "number", "minimum": 0},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "oneOf": [
+          {"required": ["path"], "not": {"required": ["expression"]}},
+          {
+            "required": ["expression", "bindings"],
+            "not": {"required": ["path"]}
+          }
+        ],
+        "properties": {
+          "id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "path": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$"
+          },
+          "expression": {"type": "string", "minLength": 1, "maxLength": 512},
+          "bindings": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 32,
+            "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+            "additionalProperties": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*([.](?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$"}
+          },
+          "display_formula": {"type": "string", "maxLength": 2000},
+          "type": {"enum": ["constant", "nondecreasing", "nonincreasing"]},
+          "value": {"type": "number"},
+          "unit": {"type": ["string", "null"]},
+          "result_unit": {"type": ["string", "null"]},
+          "tolerance": {"type": "number", "minimum": 0},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
     "learning_goals": {"type": "array", "items": {"type": "string"}},
     "visual_conventions": {"type": "object"}
   }

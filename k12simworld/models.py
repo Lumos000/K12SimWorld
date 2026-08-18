@@ -14,6 +14,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from .domain_solvers import DomainSimulationError, _SafeExpression
+
 
 SUBJECT_ALIASES = {
     "math": "mathematics",
@@ -218,7 +220,7 @@ class RenderSpec:
 
     def validate(self) -> None:
         if self.engine not in {
-            "threejs-cannon", "p5js", "manim",
+            "threejs-cannon", "p5js", "manim", "mechanics-2d",
             "equation-solver", "circuit-solver", "ray-optics",
         }:
             raise ContractError(f"unsupported engine {self.engine!r}")
@@ -241,6 +243,55 @@ def _validate_finite(value: Any, path: str = "$") -> None:
             _validate_finite(item, f"{path}[{index}]")
 
 
+_LOOKUP_PATH_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$"
+)
+_FORMULA_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def _validate_formula_contract(item: Mapping[str, Any], location: str) -> None:
+    """Validate the structural boundary between lookups and safe formulas."""
+    raw_path = item.get("path")
+    raw_expression = item.get("expression")
+    has_path = isinstance(raw_path, str) and bool(raw_path.strip())
+    has_expression = isinstance(raw_expression, str) and bool(raw_expression.strip())
+    if has_path == has_expression:
+        raise ContractError(f"{location} requires exactly one of path or expression")
+    if has_path and not _LOOKUP_PATH_RE.fullmatch(raw_path.strip()):
+        raise ContractError(
+            f"{location}.path must be a dotted lookup path, not an arithmetic expression"
+        )
+    if has_expression:
+        expression = raw_expression.strip()
+        if len(expression) > 512:
+            raise ContractError(f"{location}.expression exceeds 512 characters")
+        bindings = item.get("bindings")
+        if not isinstance(bindings, Mapping) or not 1 <= len(bindings) <= 32:
+            raise ContractError(
+                f"{location}.bindings must map 1 to 32 variable names to lookup paths"
+            )
+        for alias, binding_path in bindings.items():
+            if not isinstance(alias, str) or not _FORMULA_NAME_RE.fullmatch(alias):
+                raise ContractError(f"{location}.bindings contains unsafe variable name {alias!r}")
+            if not isinstance(binding_path, str) or not _LOOKUP_PATH_RE.fullmatch(
+                binding_path.strip()
+            ):
+                raise ContractError(
+                    f"{location}.bindings.{alias} must be a dotted lookup path"
+                )
+        try:
+            _SafeExpression(expression, bindings.keys(), f"{location}.expression")
+        except DomainSimulationError as exc:
+            raise ContractError(str(exc)) from exc
+    elif item.get("bindings") not in (None, {}):
+        raise ContractError(f"{location}.bindings is valid only with expression")
+    display_formula = item.get("display_formula")
+    if display_formula is not None and (
+        not isinstance(display_formula, str) or len(display_formula) > 2000
+    ):
+        raise ContractError(f"{location}.display_formula must be a string up to 2000 characters")
+
+
 @dataclass(frozen=True)
 class EduWorldSpec:
     problem_id: str
@@ -253,10 +304,33 @@ class EduWorldSpec:
     learning_goals: List[str]
     visual_conventions: Dict[str, Any]
     final_state: Dict[str, Any] = field(default_factory=dict)
+    terminal_event: Dict[str, Any] = field(default_factory=dict)
+    target_observables: List[Dict[str, Any]] = field(default_factory=list)
+    invariants: List[Dict[str, Any]] = field(default_factory=list)
     schema_version: str = "1.0"
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "EduWorldSpec":
+        object_fields = (
+            "coordinate_system", "initial_state", "final_state", "terminal_event",
+            "visual_conventions"
+        )
+        list_fields = (
+            "objects", "parameters", "constraints", "expected_events", "target_observables",
+            "invariants", "learning_goals"
+        )
+        for field_name in object_fields:
+            field_value = value.get(field_name, {})
+            if field_value is not None and not isinstance(field_value, Mapping):
+                raise ContractError(
+                    f"EduWorldSpec.{field_name} must be a JSON object, got {type(field_value).__name__}"
+                )
+        for field_name in list_fields:
+            field_value = value.get(field_name, [])
+            if field_value is not None and not isinstance(field_value, list):
+                raise ContractError(
+                    f"EduWorldSpec.{field_name} must be a JSON array, got {type(field_value).__name__}"
+                )
         result = cls(
             problem_id=str(value.get("problem_id") or "").strip(),
             coordinate_system=dict(value.get("coordinate_system") or {}),
@@ -268,6 +342,9 @@ class EduWorldSpec:
             learning_goals=_string_list(value.get("learning_goals")),
             visual_conventions=dict(value.get("visual_conventions") or {}),
             final_state=dict(value.get("final_state") or {}),
+            terminal_event=dict(value.get("terminal_event") or {}),
+            target_observables=[dict(item) for item in value.get("target_observables", [])],
+            invariants=[dict(item) for item in value.get("invariants", [])],
             schema_version=str(value.get("schema_version") or "1.0"),
         )
         result.validate()
@@ -296,6 +373,27 @@ class EduWorldSpec:
                 raise ContractError(
                     f"event {event.get('id')!r} references unknown objects: {sorted(unknown)}"
                 )
+        terminal_unknown = set(_string_list(self.terminal_event.get("participants"))) - known
+        if terminal_unknown:
+            raise ContractError(
+                f"terminal event references unknown objects: {sorted(terminal_unknown)}"
+            )
+        target_ids = [str(item.get("id") or "").strip() for item in self.target_observables]
+        if any(not item for item in target_ids) or len(target_ids) != len(set(target_ids)):
+            raise ContractError("target observable ids must be present and unique")
+        invariant_ids = [str(item.get("id") or "").strip() for item in self.invariants]
+        if any(not item for item in invariant_ids) or len(invariant_ids) != len(set(invariant_ids)):
+            raise ContractError("invariant ids must be present and unique")
+        for index, target in enumerate(self.target_observables):
+            _validate_formula_contract(target, f"target_observables[{index}]")
+            if "expected" not in target:
+                raise ContractError(f"target_observables[{index}] requires expected")
+        for index, invariant in enumerate(self.invariants):
+            _validate_formula_contract(invariant, f"invariants[{index}]")
+            if invariant.get("type", "constant") not in {
+                "constant", "nondecreasing", "nonincreasing"
+            }:
+                raise ContractError(f"invariants[{index}] has unsupported type")
         _validate_finite(self.to_dict())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -316,8 +414,12 @@ class ArtifactManifest:
     success: bool
     engine: Optional[str] = None
     storyboard_path: Optional[str] = None
+    solution_spec_path: Optional[str] = None
     world_spec_path: Optional[str] = None
+    simulation_contract_path: Optional[str] = None
     program_path: Optional[str] = None
+    observed_trace_path: Optional[str] = None
+    target_validation_path: Optional[str] = None
     document_path: Optional[str] = None
     video_paths: List[str] = field(default_factory=list)
     trace_paths: List[str] = field(default_factory=list)

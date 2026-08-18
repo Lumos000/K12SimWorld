@@ -195,6 +195,32 @@ def command_validate(args: argparse.Namespace) -> int:
                 if not report.valid:
                     failures += 1
                     print(f"{run_dir.name}: {'; '.join(report.errors)}", file=sys.stderr)
+                manifest_file = run_dir / "manifest.json"
+                manifest = (
+                    json.loads(manifest_file.read_text(encoding="utf-8"))
+                    if manifest_file.exists()
+                    else {}
+                )
+                if manifest.get("method") == "k12simworld_candidate_target":
+                    required = [
+                        "solution_spec.json",
+                        "simulation_contract.json",
+                        "target_validation.json",
+                    ]
+                    missing = [name for name in required if not (run_dir / name).is_file()]
+                    if missing:
+                        raise ValueError(f"missing candidate-target artifacts: {missing}")
+                    target_validation = json.loads(
+                        (run_dir / "target_validation.json").read_text(encoding="utf-8")
+                    )
+                    if str(program.get("engine") or "") in DOMAIN_ENGINES:
+                        if not (run_dir / "observed_trace.json").is_file():
+                            raise ValueError("missing observed_trace.json for trusted domain engine")
+                        if target_validation.get("status") != "passed":
+                            raise ValueError(
+                                "candidate target validation is not passed: "
+                                f"{target_validation.get('status')}"
+                            )
             except Exception as exc:
                 failures += 1
                 print(f"{run_dir.name}: {exc}", file=sys.stderr)
@@ -203,25 +229,80 @@ def command_validate(args: argparse.Namespace) -> int:
 
 
 def command_evaluate(args: argparse.Namespace) -> int:
-    outputs = write_evaluation_report(read_records(args.manifests), args.output_dir)
+    records = [dict(row) for row in read_records(args.manifests)]
+    external: Dict[str, Dict[str, Any]] = {}
+    for score_path in args.scores or []:
+        for row in read_records(score_path):
+            problem_id = str(row.get("problem_id") or "")
+            if not problem_id:
+                continue
+            bucket = external.setdefault(problem_id, {"scores": {}, "diagnostics": {}})
+            bucket["scores"].update(dict(row.get("scores") or {}))
+            if "trajectory_nrmse" in bucket["scores"]:
+                bucket["diagnostics"]["expert_trajectory_nrmse"] = bucket["scores"].pop(
+                    "trajectory_nrmse"
+                )
+    for record in records:
+        supplement = external.get(str(record.get("problem_id") or ""))
+        if not supplement:
+            continue
+        record["scores"] = {
+            **dict(record.get("scores") or {}),
+            **dict(supplement["scores"]),
+        }
+        record["diagnostics"] = {
+            **dict(record.get("diagnostics") or {}),
+            **dict(supplement["diagnostics"]),
+        }
+    outputs = write_evaluation_report(records, args.output_dir)
     print(json.dumps(outputs, ensure_ascii=False, indent=2))
     return 0
 
 
 def command_score_traces(args: argparse.Namespace) -> int:
     references = {str(row["problem_id"]): row for row in read_records(args.references)}
+    missing_observed = []
+    if args.observed:
+        observations = [dict(row) for row in read_records(args.observed)]
+    else:
+        observations = []
+        manifest_root = Path(args.manifests).resolve().parent
+        for manifest in read_records(args.manifests):
+            problem_id = str(manifest.get("problem_id") or "")
+            raw_path = str(manifest.get("observed_trace_path") or "")
+            if not raw_path:
+                missing_observed.append(problem_id)
+                continue
+            trace_path = Path(raw_path)
+            if not trace_path.is_absolute():
+                trace_path = manifest_root / trace_path
+            try:
+                observed = json.loads(trace_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                missing_observed.append(problem_id)
+                continue
+            if isinstance(observed, dict):
+                observations.append(observed)
+            else:
+                missing_observed.append(problem_id)
+
     output = []
-    missing = []
-    for observed in read_records(args.observed):
+    missing_references = []
+    for observed in observations:
         problem_id = str(observed.get("problem_id") or "")
         reference = references.get(problem_id)
         if reference is None:
-            missing.append(problem_id)
+            missing_references.append(problem_id)
             continue
         output.append({"problem_id": problem_id, "scores": score_trace(reference, observed)})
     write_jsonl(args.output, output)
-    print(json.dumps({"scored": len(output), "missing_references": missing}, ensure_ascii=False, indent=2))
-    return 1 if missing and args.strict else 0
+    summary = {
+        "scored": len(output),
+        "missing_references": missing_references,
+        "missing_observed_traces": missing_observed,
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 1 if args.strict and (missing_references or missing_observed) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -266,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     domain = sub.add_parser(
         "simulate-domain",
-        help="execute one declarative equation/circuit/optics spec without an LLM",
+        help="execute one declarative mechanics/equation/circuit/optics spec without an LLM",
     )
     domain.add_argument("--engine", required=True, choices=sorted(DOMAIN_ENGINES))
     domain.add_argument("--spec", required=True)
@@ -281,7 +362,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument(
         "--engine",
         choices=(
-            "threejs-cannon", "p5js", "manim",
+            "threejs-cannon", "p5js", "manim", "mechanics-2d",
             "equation-solver", "circuit-solver", "ray-optics",
         ),
     )
@@ -311,11 +392,20 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = sub.add_parser("evaluate", help="score manifests and create paper tables")
     evaluate.add_argument("--manifests", required=True)
     evaluate.add_argument("--output-dir", required=True)
+    evaluate.add_argument(
+        "--scores",
+        action="append",
+        help="optional JSON/JSONL scores to merge by problem_id; may be repeated",
+    )
     evaluate.set_defaults(func=command_evaluate)
 
     traces = sub.add_parser("score-traces", help="compare observed state traces with expert references")
     traces.add_argument("--references", required=True)
-    traces.add_argument("--observed", required=True)
+    observed_source = traces.add_mutually_exclusive_group(required=True)
+    observed_source.add_argument("--observed", help="normalized observed trace JSON/JSONL")
+    observed_source.add_argument(
+        "--manifests", help="generation manifests containing observed_trace_path"
+    )
     traces.add_argument("--output", required=True)
     traces.add_argument("--strict", action="store_true")
     traces.set_defaults(func=command_score_traces)

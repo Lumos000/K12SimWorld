@@ -14,7 +14,7 @@ from .io import read_records, write_json, write_jsonl
 from .models import K12Problem
 
 
-TIER_VERSION = "physics-execution-tiers-v1.2-equation-ode"
+TIER_VERSION = "physics-execution-tiers-v1.3-declarative-mechanics-2d"
 
 NATIVE_FAMILIES = {
     "kinematics", "projectile", "force_and_motion", "inclined_plane",
@@ -78,11 +78,11 @@ def classify_physics_record(record: Mapping[str, Any]) -> Dict[str, Any]:
         return {
             "tier": "native",
             "subtype": family,
-            "current_engine": "threejs-cannon",
-            "required_backend": "threejs-cannon",
-            "implementation_status": "backend_available_dependencies_required",
+            "current_engine": "mechanics-2d",
+            "required_backend": "mechanics_2d",
+            "implementation_status": "deterministic_declarative_2d_solver_available",
             "ready_for_main_experiment": True,
-            "reason": "The primary process is covered by the current rigid-body/mechanics renderer.",
+            "reason": "Native mechanics defaults to trusted declarative 2-D; verified spatial evidence may request Three.js/Cannon 3-D.",
         }
     # Preserve total coverage without silently calling an unknown process native.
     return {
@@ -194,7 +194,7 @@ def partition_physics_tiers(
     (output / "README.md").write_text(
         "# Physics execution tiers\n\n"
         "The three JSONL files form a mutually exclusive and collectively exhaustive partition "
-        "of the human-selected physics benchmark. `native` uses Three.js/Cannon, `equation` uses "
+        "of the human-selected physics benchmark. `native` defaults to declarative mechanics-2d with a verified 3-D gate, `equation` uses "
         "Boris charged-particle or restricted-expression RK4 equation solvers, and `specialized` uses deterministic "
         "DC-circuit or geometric ray-optics solvers. All browser renderers still require "
         "Node.js, Puppeteer, and FFmpeg; solver traces can be generated and validated offline.\n",

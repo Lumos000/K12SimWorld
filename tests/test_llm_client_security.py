@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock, patch
 
-from src.llm_client import LLMClient
+from src.llm_client import (
+    LLMClient,
+    QWEN_CONNECT_TIMEOUT_SECONDS,
+    QWEN_READ_TIMEOUT_SECONDS,
+)
 
 
 class LLMClientSecurityTests(unittest.TestCase):
@@ -47,6 +51,36 @@ class LLMClientSecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "/compatible-mode/v1"):
                 client.call([], "hello", 1, 1)
         post.assert_not_called()
+
+    def test_qwen_requests_json_object_and_records_finish_reason(self) -> None:
+        response = Mock()
+        response.status_code = 200
+        response.text = "{\"choices\":[{\"message\":{\"content\":\"{}\"},\"finish_reason\":\"stop\"}]}"
+        response.json.return_value = {
+            "choices": [
+                {"message": {"content": "{}"}, "finish_reason": "stop"}
+            ]
+        }
+        response.elapsed.total_seconds.return_value = 0.1
+        client = LLMClient(
+            "qwen3-vl-plus",
+            qwen_api_key="secret-key",
+            qwen_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        )
+
+        with patch("src.llm_client.requests.post", return_value=response) as post:
+            text, logs = client.call([], "return json", 1, 0)
+
+        self.assertEqual(text, "{}")
+        self.assertEqual(
+            post.call_args.kwargs["json"]["response_format"],
+            {"type": "json_object"},
+        )
+        self.assertEqual(
+            post.call_args.kwargs["timeout"],
+            (QWEN_CONNECT_TIMEOUT_SECONDS, QWEN_READ_TIMEOUT_SECONDS),
+        )
+        self.assertEqual(logs[0]["finish_reason"], "stop")
 
 
 if __name__ == "__main__":

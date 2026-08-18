@@ -41,6 +41,21 @@ except ValueError:
     DEFAULT_MAX_COMPLETION_TOKENS = 16384
 DEFAULT_TEMPERATURE = 0.6
 
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+QWEN_CONNECT_TIMEOUT_SECONDS = _positive_float_env(
+    "QWEN_CONNECT_TIMEOUT_SECONDS", 30.0
+)
+QWEN_READ_TIMEOUT_SECONDS = _positive_float_env("QWEN_READ_TIMEOUT_SECONDS", 120.0)
+
 class LLMClient:
     """Dispatches LLM calls to OpenAI, Anthropic, and Qwen multimodal models."""
 
@@ -295,6 +310,10 @@ class LLMClient:
             "model": self.model_name,
             "messages": formatted_messages,
             "max_tokens": max_tokens,
+            # Every K12SimWorld generation stage requires one JSON object.
+            # Enforce that contract at the compatible API boundary rather than
+            # relying only on a natural-language instruction in the prompt.
+            "response_format": {"type": "json_object"},
         }
         if self._supports_temperature_override():
             payload["temperature"] = DEFAULT_TEMPERATURE
@@ -314,7 +333,12 @@ class LLMClient:
         }
 
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=(QWEN_CONNECT_TIMEOUT_SECONDS, QWEN_READ_TIMEOUT_SECONDS),
+            )
             log_entry["http_status"] = response.status_code
             log_entry["elapsed_seconds"] = response.elapsed.total_seconds() if hasattr(response, "elapsed") else None
 
@@ -336,6 +360,7 @@ class LLMClient:
             data = response.json()
             choices = data.get("choices", [])
             message = choices[0].get("message", {}) if choices else {}
+            finish_reason = choices[0].get("finish_reason") if choices else None
             content = message.get("content")
             if isinstance(content, list):
                 response_text = "\n".join(chunk.get("text", "") for chunk in content if isinstance(chunk, dict))
@@ -343,6 +368,7 @@ class LLMClient:
                 response_text = content or ""
 
             log_entry["result"] = "success"
+            log_entry["finish_reason"] = finish_reason
             log_entry["response_text"] = response_text
             log_entry["raw_response"] = response.text
             usage = data.get("usage")

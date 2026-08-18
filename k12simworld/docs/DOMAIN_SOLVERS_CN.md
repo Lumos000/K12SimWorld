@@ -1,4 +1,4 @@
-# K12SimWorld 第二、三层确定性物理求解器
+# K12SimWorld 声明式确定性物理求解器
 
 ## 1. 执行协议
 
@@ -14,7 +14,25 @@
 模型仍需完成多模态理解和结构化建模，但不能通过画一条“看起来正确”的轨迹绕过
 洛伦兹力、基尔霍夫定律或光线交点计算。
 
-## 2. 第二层：equation-solver
+
+## 2. 第一层：mechanics-2d
+
+Native 力学题默认使用 `mechanics_2d`：模型声明二维物体、线段、力、冲量、弹簧、
+定长约束和教学标注；可信求解器输出状态 trace；固定 Canvas 编译器负责绘制。同一
+物理对象的左右面板、水平投影或竖直投影使用 `visual_instances`，每个实例通过
+`source_object_id` 引用真实 body。视觉实例没有独立物理状态，不能成为力、动作、
+碰撞、事件或评测目标。
+只有通过空间证据门控的题目才改用 Three.js/Cannon 3D。详见
+`ARCHITECTURE_2D_FIRST_CN.md`。
+
+```bash
+python run_k12simworld.py simulate-domain \
+  --engine mechanics-2d \
+  --spec k12simworld/examples/domain/projectile_2d.json \
+  --output-dir /tmp/k12-mechanics-2d-demo --render
+```
+
+## 3. 第二层：equation-solver
 
 当前包含两种互补执行模型。
 
@@ -50,7 +68,7 @@ python run_k12simworld.py simulate-domain \
 这两条命令分别验证带电粒子轨迹和电磁感应耦合方程。模型必须依据题目决定使用哪种
 `domain_model`；求解器不会替模型猜测题图中的方向、拓扑或缺失参数。
 
-## 3. 第三层：circuit-solver
+## 4. 第三层：circuit-solver
 
 当前实现确定性线性直流电路：
 
@@ -67,7 +85,7 @@ python run_k12simworld.py simulate-domain \
   --output-dir /tmp/k12-circuit-demo
 ```
 
-## 4. 第三层：ray-optics
+## 5. 第三层：ray-optics
 
 当前实现二维几何光线追迹：
 
@@ -94,11 +112,11 @@ run_summary.json        # 引擎、路径、输入哈希和摘要
 
 确认 Node/Puppeteer/FFmpeg 和服务器 I/O 正常后，可增加 `--render` 生成 `scene.mp4`。
 
-## 5. 在人工三层数据上生成
+## 6. 在人工三层数据上生成
 
 路由现在自动使用：
 
-- `physics_native_v1.jsonl` → `threejs-cannon`；
+- `physics_native_v1.jsonl` → 默认 `mechanics-2d`；仅通过空间证据门控时使用 `threejs-cannon`；
 - `physics_equation_v1.jsonl` → `equation-solver`；
 - 电路题 → `circuit-solver`；
 - 光学题 → `ray-optics`。
@@ -127,7 +145,7 @@ python -u run_k12simworld.py generate \
 <problem_id>/traces/SIM_*.json
 ```
 
-## 6. 能力边界
+## 7. 能力边界
 
 求解器正确不代表模型对题图的建模正确。模型仍可能识别错电路拓扑、正负电荷、场方向、
 透镜类型或参数；这些错误会被求解器忠实执行，必须通过题意一致性、关键事件和答案验证评价。

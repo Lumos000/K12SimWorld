@@ -47,9 +47,11 @@ def geometric_mean(values: Iterable[Optional[float]]) -> Optional[float]:
 
 
 def event_f1(expected: Sequence[Mapping[str, Any]], observed: Sequence[Mapping[str, Any]]) -> float:
-    def signature(item: Mapping[str, Any]) -> Tuple[str, str, Tuple[str, ...]]:
+    def signature(item: Mapping[str, Any]) -> Tuple[str, Tuple[str, ...]]:
+        # Solver events often have no semantic event id.  Compare observable
+        # event type and participants rather than an unobservable annotation id.
         participants = tuple(sorted(str(value) for value in item.get("participants", [])))
-        return str(item.get("id") or ""), str(item.get("type") or ""), participants
+        return str(item.get("type") or ""), participants
 
     gold = {signature(item) for item in expected}
     pred = {signature(item) for item in observed}
@@ -166,6 +168,32 @@ def aggregate_records(
     output: List[Dict[str, Any]] = []
     for key, rows in sorted(grouped.items(), key=lambda item: tuple(str(x) for x in item[0])):
         result = {name: value for name, value in zip(group_by, key)}
+        candidate_rows = [
+            row for row in rows
+            if (row.get("diagnostics") or {}).get("candidate_target_status")
+            in {"passed", "failed"}
+        ]
+        result["candidate_target_evaluable_n"] = len(candidate_rows)
+        result["candidate_target_pass_rate"] = (
+            100.0
+            * sum(
+                (row.get("diagnostics") or {}).get("candidate_target_status") == "passed"
+                for row in candidate_rows
+            )
+            / len(candidate_rows)
+            if candidate_rows
+            else None
+        )
+        candidate_scores = [
+            (row.get("diagnostics") or {})
+            .get("candidate_constraint_scores", {})
+            .get("candidate_constraint_satisfaction")
+            for row in candidate_rows
+        ]
+        candidate_scores = [float(value) for value in candidate_scores if value is not None]
+        result["candidate_constraint_satisfaction"] = (
+            mean(candidate_scores) if candidate_scores else None
+        )
         result["n"] = len(rows)
         result["success_rate"] = 100.0 * sum(bool(row.get("success")) for row in rows) / len(rows)
         for metric in (

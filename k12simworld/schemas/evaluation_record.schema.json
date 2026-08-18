@@ -8,7 +8,7 @@
     "problem_id": {"type": "string"},
     "model": {"type": "string"},
     "method": {
-      "enum": ["text_cot", "static_manim", "direct_code", "unanchored", "k12simworld_state_anchored"]
+      "enum": ["text_cot", "static_manim", "direct_code", "unanchored", "k12simworld_state_anchored", "k12simworld_candidate_target"]
     },
     "success": {"type": "boolean"},
     "scores": {
