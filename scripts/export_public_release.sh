@@ -57,7 +57,7 @@ release_paths=(
   docs/API_CONFIGURATION_CN.md
   docs/REPOSITORY_RELEASE_CN.md
   k12simworld
-  k12simworld_tests
+  tests
   package-lock.json
   package.json
   requirements-k12.txt
@@ -72,8 +72,6 @@ release_paths=(
   src/p5js_renderer.py
   src/threejs_renderer.py
   src/video_normalizer.py
-  tests/test_api_config.py
-  tests/test_llm_client_security.py
 )
 
 for path in "${release_paths[@]}"; do

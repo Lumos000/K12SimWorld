@@ -48,7 +48,7 @@ export K12_RUN_ROOT=/root/autodl-tmp/k12simworld_runs
 python run_k12simworld.py validate \
   --benchmark "$K12_PHYSICS_DATA/physics_smoke_20.jsonl"
 
-python -m unittest discover -s k12simworld_tests -p 'test_*.py'
+python -m unittest discover -s tests -p 'test_*.py'
 ```
 
 ## 4. 第一题候选终态约束测试

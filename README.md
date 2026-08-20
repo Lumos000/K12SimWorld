@@ -37,7 +37,7 @@ Current capabilities include:
 Python 3.10 is recommended.
 
 ```bash
-cd /root/K12SimWorld
+cd K12SimWorld
 conda create -n k12simworld python=3.10 -y
 conda activate k12simworld
 python -m pip install --upgrade pip
@@ -65,11 +65,20 @@ cd K12SimWorld
 conda activate k12simworld
 
 python run_k12simworld.py generate \
-  --benchmark "physics_k12simbench.jsonl" \
-  --output-dir "physics_full" \
+  --benchmark physics_k12simbench.jsonl \
+  --output-dir physics_full \
   --model qwen3-vl-plus \
   --render \
   --jobs 2 \
   --resume \
   --retry-failed
+```
+
+
+## Tests
+
+All tests live in `tests/` and cover the declarative physics solvers, generation pipeline, validation, evaluation, rendering adapters, and model-provider configuration. Run the complete suite with:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py" -v
 ```

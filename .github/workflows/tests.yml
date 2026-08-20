@@ -22,5 +22,4 @@ jobs:
           cache-dependency-path: requirements-k12.txt
       - run: python -m pip install -U pip
       - run: python -m pip install -r requirements-k12.txt
-      - run: python -m unittest discover -s k12simworld_tests -p "test_*.py" -v
       - run: python -m unittest discover -s tests -p "test_*.py" -v

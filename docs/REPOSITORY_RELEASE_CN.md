@@ -16,8 +16,7 @@
 
 ### 测试、配置与复现材料
 
-- `k12simworld_tests/`；
-- `tests/test_api_config.py`、`tests/test_llm_client_security.py`；
+- `tests/`：核心求解器、生成管线、评测、渲染和模型适配层测试；
 - `.github/workflows/tests.yml`；
 - `.env.template`，只能包含空值或非敏感默认地址；
 - `.gitignore`、`requirements-k12.txt`、`package.json`、`package-lock.json`；
@@ -65,7 +64,6 @@ git status --short
 git diff --cached --stat
 git diff --cached --check
 git grep -n -I -E 'sk-[A-Za-z0-9_-]{16,}|Bearer [A-Za-z0-9_.-]{16,}' --cached
-python -m unittest discover -s k12simworld_tests -p "test_*.py" -v
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
