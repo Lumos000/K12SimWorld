@@ -6,6 +6,8 @@ import argparse
 import hashlib
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -126,26 +128,43 @@ def command_simulate_domain(args: argparse.Namespace) -> int:
 
 
 def command_generate(args: argparse.Namespace) -> int:
-    adapter = VisPhyLLMAdapter(args.model)
-    pipeline = K12SimWorldPipeline(adapter, args.output_dir, render=args.render)
-    return _run_generation(args, pipeline)
+    def pipeline_factory() -> K12SimWorldPipeline:
+        return K12SimWorldPipeline(
+            VisPhyLLMAdapter(args.model), args.output_dir, render=args.render
+        )
+
+    return _run_generation(args, pipeline_factory(), pipeline_factory=pipeline_factory)
 
 
 def command_generate_baseline(args: argparse.Namespace) -> int:
-    adapter = VisPhyLLMAdapter(args.model)
-    pipeline = BaselinePipeline(
-        adapter, args.output_dir, method=args.method, render=args.render
-    )
-    return _run_generation(args, pipeline)
+    def pipeline_factory() -> BaselinePipeline:
+        return BaselinePipeline(
+            VisPhyLLMAdapter(args.model),
+            args.output_dir,
+            method=args.method,
+            render=args.render,
+        )
+
+    return _run_generation(args, pipeline_factory(), pipeline_factory=pipeline_factory)
 
 
-def _run_generation(args: argparse.Namespace, pipeline: Any) -> int:
+def _run_generation(
+    args: argparse.Namespace, pipeline: Any, *, pipeline_factory: Any = None
+) -> int:
     if args.retry_failed and not args.resume:
         raise ValueError("--retry-failed requires --resume")
+    jobs = int(getattr(args, "jobs", 1) or 1)
+    if jobs < 1:
+        raise ValueError("--jobs must be at least 1")
+    if jobs > 1 and pipeline_factory is None:
+        raise ValueError("parallel generation requires a pipeline factory")
+
     output = Path(args.output_dir)
     problems = _problems(args.benchmark)[: args.limit or None]
-    consolidated: List[Dict[str, Any]] = []
-    for problem in problems:
+    records: List[Dict[str, Any] | None] = [None] * len(problems)
+    pending: List[tuple[int, K12Problem]] = []
+
+    for index, problem in enumerate(problems):
         item_manifest = output / safe_artifact_name(problem.problem_id) / "manifest.json"
         existing: Dict[str, Any] | None = None
         if args.resume and item_manifest.is_file():
@@ -159,16 +178,69 @@ def _run_generation(args: argparse.Namespace, pipeline: Any) -> int:
             bool(existing.get("success")) or not args.retry_failed
         )
         if should_skip:
-            manifest_record = existing
-            print(f"{problem.problem_id}: skipped existing {'success' if existing.get('success') else 'failure'}")
+            records[index] = existing
+            print(
+                f"{problem.problem_id}: skipped existing "
+                f"{'success' if existing.get('success') else 'failure'}"
+            )
         else:
-            manifest = pipeline.generate(problem, requested_engine=args.engine)
-            manifest_record = manifest.to_dict()
-            print(f"{problem.problem_id}: {'ok' if manifest.success else manifest.error}")
-        consolidated.append(manifest_record)
-        # Rewrite the small ordered index after every item. Individual artifacts
-        # remain authoritative and make interruption/resume auditable.
-        write_jsonl(output / "manifests.jsonl", consolidated)
+            pending.append((index, problem))
+
+    def persist() -> None:
+        # Completed records stay in benchmark order; item manifests remain authoritative.
+        write_jsonl(
+            output / "manifests.jsonl",
+            [record for record in records if record is not None],
+        )
+
+    def run_one(worker: Any, index: int, problem: K12Problem) -> tuple[int, Dict[str, Any]]:
+        manifest = worker.generate(problem, requested_engine=args.engine)
+        return index, manifest.to_dict()
+
+    if jobs == 1:
+        for index, problem in pending:
+            index, record = run_one(pipeline, index, problem)
+            records[index] = record
+            print(f"{problem.problem_id}: {'ok' if record.get('success') else record.get('error')}")
+            persist()
+        if not pending:
+            persist()
+        return 0
+
+    worker_state = threading.local()
+
+    def run_parallel(index: int, problem: K12Problem) -> tuple[int, Dict[str, Any]]:
+        if not hasattr(worker_state, "pipeline"):
+            worker_state.pipeline = pipeline_factory()
+        return run_one(worker_state.pipeline, index, problem)
+
+    print(f"parallel generation enabled: jobs={jobs}, pending={len(pending)}")
+    with ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="k12sim") as executor:
+        futures = {
+            executor.submit(run_parallel, index, problem): (index, problem)
+            for index, problem in pending
+        }
+        for future in as_completed(futures):
+            index, problem = futures[future]
+            try:
+                index, record = future.result()
+            except Exception as exc:
+                # Pipeline implementations normally return a failure manifest. This guard
+                # keeps an unexpected worker failure from terminating the whole benchmark.
+                record = {
+                    "problem_id": problem.problem_id,
+                    "model": args.model,
+                    "success": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "diagnostics": {"worker_failure": True},
+                }
+                item_dir = output / safe_artifact_name(problem.problem_id)
+                write_json(item_dir / "manifest.json", record)
+            records[index] = record
+            print(f"{problem.problem_id}: {'ok' if record.get('success') else record.get('error')}")
+            persist()
+    if not pending:
+        persist()
     return 0
 
 
@@ -368,6 +440,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate.add_argument("--limit", type=int, default=0)
     generate.add_argument("--render", action="store_true")
+    generate.add_argument(
+        "--jobs", type=int, default=1,
+        help="parallel problems (start with 2 for remote APIs; default: 1)",
+    )
     generate.add_argument("--resume", action="store_true", help="skip items with an existing manifest")
     generate.add_argument("--retry-failed", action="store_true", help="with --resume, rerun existing failures")
     generate.set_defaults(func=command_generate)
@@ -380,6 +456,10 @@ def build_parser() -> argparse.ArgumentParser:
     baseline.add_argument("--engine", choices=("threejs-cannon", "p5js", "manim"))
     baseline.add_argument("--limit", type=int, default=0)
     baseline.add_argument("--render", action="store_true")
+    baseline.add_argument(
+        "--jobs", type=int, default=1,
+        help="parallel problems (default: 1)",
+    )
     baseline.add_argument("--resume", action="store_true", help="skip items with an existing manifest")
     baseline.add_argument("--retry-failed", action="store_true", help="with --resume, rerun existing failures")
     baseline.set_defaults(func=command_generate_baseline)

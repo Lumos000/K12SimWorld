@@ -181,6 +181,9 @@ def validate_program_payload(
     required_highlights = {
         block.block_id: set(block.highlights) for block in storyboard if block.kind == "sim"
     }
+    simulation_narratives = {
+        block.block_id: block.content.lower() for block in storyboard if block.kind == "sim"
+    }
     actual_scene_id_list = [
         str(scene.get("scene_id")) for scene in scenes if isinstance(scene, Mapping)
     ]
@@ -234,6 +237,48 @@ def validate_program_payload(
                         f"{scene.get('scene_id')}: auxiliary environment entities absent "
                         f"from EduWorldSpec: {sorted(unknown_auxiliary)}"
                     )
+                if engine == "mechanics-2d":
+                    scene_id = str(scene.get("scene_id") or "")
+                    narrative = simulation_narratives.get(scene_id, "")
+                    action_types = {
+                        str(item.get("type") or "")
+                        for item in simulation_spec.get("actions") or []
+                        if isinstance(item, Mapping)
+                    }
+                    break_cues = (
+                        "断绳", "剪断绳", "绳断", "解除约束", "脱离绳",
+                        "cut the string", "string breaks", "rope breaks",
+                        "remove the constraint", "detach from the rope",
+                    )
+                    if (
+                        simulation_spec.get("distance_constraints")
+                        and any(cue in narrative for cue in break_cues)
+                        and "remove_distance_constraint" not in action_types
+                    ):
+                        warnings.append(
+                            f"{scene_id}: storyboard describes release/break but the physical "
+                            "trajectory never removes a distance constraint"
+                        )
+                    strategy = str(
+                        simulation_spec.get("visual_strategy") or "continuous_process"
+                    )
+                    component_cues = (
+                        "分解", "分量", "投影", "motion component", "vector component",
+                        "coordinate projection",
+                    )
+                    if (
+                        strategy == "component_decomposition"
+                        and not any(cue in narrative for cue in component_cues)
+                    ):
+                        warnings.append(
+                            f"{scene_id}: component panels were requested without an explicit "
+                            "component-decomposition teaching goal"
+                        )
+                    if action_types and not simulation_spec.get("phases"):
+                        warnings.append(
+                            f"{scene_id}: physical interventions are present but no phases label "
+                            "the complete before/after process"
+                        )
         report = validate_document(
             document, engine, trusted_compiled=engine in DOMAIN_ENGINES
         )

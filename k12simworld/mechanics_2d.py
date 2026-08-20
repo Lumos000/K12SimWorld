@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 from .domain_solvers import (
     DomainSimulationError, _bounded_number, _finite_number, _round, _safe_id, _vec2,
 )
+from .simulation_normalization import normalize_domain_simulation_spec
 
 
 def _radius(body: Mapping[str, Any], normal: Tuple[float, float] | None = None) -> float:
@@ -95,8 +96,176 @@ def _normalise_links(spec: Mapping[str, Any], name: str, bodies: Mapping[str, Ma
     return result
 
 
+def _sample_path(path: Mapping[str, Any], distance: float) -> Tuple[List[float], List[float]]:
+    """Return the point and unit tangent at an arc-length coordinate."""
+    length = float(path["_length"])
+    distance = max(0.0, min(length, float(distance)))
+    if path["type"] == "circular_arc":
+        direction = 1.0 if path["_angle_delta"] > 0 else -1.0
+        angle = path["start_angle"] + direction * distance / path["radius"]
+        point = [
+            path["center"][0] + path["radius"] * math.cos(angle),
+            path["center"][1] + path["radius"] * math.sin(angle),
+        ]
+        tangent = [-direction * math.sin(angle), direction * math.cos(angle)]
+        return point, tangent
+
+    points = path["_points"]
+    cumulative = path["_cumulative"]
+    segment_index = len(points) - 2
+    for index in range(len(points) - 1):
+        if distance <= cumulative[index + 1] + 1e-12:
+            segment_index = index
+            break
+    start, end = points[segment_index], points[segment_index + 1]
+    segment_length = cumulative[segment_index + 1] - cumulative[segment_index]
+    fraction = (distance - cumulative[segment_index]) / segment_length
+    point = [
+        start[0] + (end[0] - start[0]) * fraction,
+        start[1] + (end[1] - start[1]) * fraction,
+    ]
+    tangent = [(end[0] - start[0]) / segment_length, (end[1] - start[1]) / segment_length]
+    return point, tangent
+
+
+def _project_path(path: Mapping[str, Any], position: Sequence[float]) -> Tuple[float, List[float], List[float], float]:
+    """Project a point onto a finite path and return s, point, tangent, error."""
+    if path["type"] == "circular_arc":
+        dx = float(position[0]) - path["center"][0]
+        dy = float(position[1]) - path["center"][1]
+        angle = math.atan2(dy, dx)
+        delta = float(path["_angle_delta"])
+        direction = 1.0 if delta > 0 else -1.0
+        progress_angle = (direction * (angle - path["start_angle"])) % (2 * math.pi)
+        if progress_angle <= abs(delta) + 1e-12:
+            distance = min(abs(delta), progress_angle) * path["radius"]
+        else:
+            start_point, _ = _sample_path(path, 0)
+            end_point, _ = _sample_path(path, path["_length"])
+            distance = (
+                0.0 if math.dist(position, start_point) <= math.dist(position, end_point)
+                else float(path["_length"])
+            )
+        point, tangent = _sample_path(path, distance)
+        return distance, point, tangent, math.dist(position, point)
+
+    best: Tuple[float, List[float], List[float], float] | None = None
+    points = path["_points"]
+    cumulative = path["_cumulative"]
+    for index, (start, end) in enumerate(zip(points, points[1:])):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        length_squared = dx * dx + dy * dy
+        fraction = max(0.0, min(1.0, ((position[0] - start[0]) * dx + (position[1] - start[1]) * dy) / length_squared))
+        point = [start[0] + dx * fraction, start[1] + dy * fraction]
+        segment_length = math.sqrt(length_squared)
+        candidate = (
+            cumulative[index] + segment_length * fraction,
+            point,
+            [dx / segment_length, dy / segment_length],
+            math.dist(position, point),
+        )
+        if best is None or candidate[3] < best[3]:
+            best = candidate
+    assert best is not None
+    return best
+
+
+def _normalise_path_constraints(spec: Mapping[str, Any], bodies: Mapping[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    raw_values = spec.get("path_constraints") or []
+    if not isinstance(raw_values, list) or len(raw_values) > 32:
+        raise DomainSimulationError("path_constraints must contain at most 32 entries")
+    result: List[Dict[str, Any]] = []
+    seen_ids, seen_bodies = set(), set()
+    for index, raw in enumerate(raw_values):
+        if not isinstance(raw, Mapping):
+            raise DomainSimulationError(f"path_constraints[{index}] must be an object")
+        item_id = _safe_id(raw.get("id"), f"path_constraints[{index}].id")
+        body_id = _safe_id(raw.get("body"), f"path_constraints[{index}].body")
+        if item_id in seen_ids:
+            raise DomainSimulationError(f"duplicate path constraint id {item_id!r}")
+        if body_id not in bodies:
+            raise DomainSimulationError(f"path constraint references unknown body {body_id!r}")
+        if body_id in seen_bodies:
+            raise DomainSimulationError(f"body {body_id!r} has more than one path constraint")
+        seen_ids.add(item_id); seen_bodies.add(body_id)
+        kind = str(raw.get("type") or "polyline").strip().lower()
+        if kind in {"path", "polyline"}:
+            kind = "polyline"
+        elif kind in {"arc", "circle_arc", "circular_arc"}:
+            kind = "circular_arc"
+        elif kind in {"curve", "bezier", "quadratic_bezier", "cubic_bezier"}:
+            kind = "bezier"
+        else:
+            raise DomainSimulationError(f"unsupported path constraint type {kind!r}")
+        item: Dict[str, Any] = {
+            "id": item_id, "body": body_id, "type": kind,
+            "auto_release": str(raw.get("auto_release") or "end").strip().lower(),
+            "color": str(raw.get("color") or "#0f766e"),
+            "label": str(raw.get("label") or item_id),
+        }
+        if item["auto_release"] not in {"none", "start", "end", "either"}:
+            raise DomainSimulationError(f"{item_id}.auto_release is unsupported")
+        if kind == "circular_arc":
+            item["center"] = list(_vec2(raw.get("center"), f"{item_id}.center"))
+            item["radius"] = _bounded_number(raw.get("radius"), f"{item_id}.radius", 1e-9, 1e9, inclusive_minimum=False)
+            item["start_angle"] = _finite_number(raw.get("start_angle"), f"{item_id}.start_angle")
+            item["end_angle"] = _finite_number(raw.get("end_angle"), f"{item_id}.end_angle")
+            item["_angle_delta"] = item["end_angle"] - item["start_angle"]
+            if abs(item["_angle_delta"]) <= 1e-12 or abs(item["_angle_delta"]) > 2 * math.pi + 1e-12:
+                raise DomainSimulationError(f"{item_id} arc angle must be in (0, 2*pi]")
+            item["_length"] = abs(item["_angle_delta"]) * item["radius"]
+            item["render_points"] = [
+                _sample_path(item, item["_length"] * step / 96)[0] for step in range(97)
+            ]
+        else:
+            raw_points = raw.get("points")
+            minimum, maximum = (2, 64) if kind == "polyline" else (3, 4)
+            if not isinstance(raw_points, list) or not minimum <= len(raw_points) <= maximum:
+                raise DomainSimulationError(f"{item_id}.points must contain {minimum} to {maximum} points")
+            control_points = [list(_vec2(point, f"{item_id}.points[{point_index}]")) for point_index, point in enumerate(raw_points)]
+            if kind == "bezier":
+                sampled = []
+                degree = len(control_points) - 1
+                for step in range(129):
+                    t = step / 128
+                    point = [0.0, 0.0]
+                    for control_index, control in enumerate(control_points):
+                        weight = math.comb(degree, control_index) * (1 - t) ** (degree - control_index) * t ** control_index
+                        point[0] += weight * control[0]; point[1] += weight * control[1]
+                    sampled.append(point)
+                item["points"] = control_points
+                item["render_points"] = sampled
+            else:
+                item["points"] = control_points
+                item["render_points"] = control_points
+            item["_points"] = item["render_points"]
+            cumulative = [0.0]
+            for start, end in zip(item["_points"], item["_points"][1:]):
+                segment_length = math.dist(start, end)
+                if segment_length <= 1e-12:
+                    raise DomainSimulationError(f"{item_id} contains duplicate consecutive points")
+                cumulative.append(cumulative[-1] + segment_length)
+            item["_cumulative"] = cumulative
+            item["_length"] = cumulative[-1]
+        item["release_event_id"] = _safe_id(raw.get("release_event_id") or f"{item_id[:52]}_release", f"{item_id}.release_event_id")
+        item["release_event_type"] = _safe_id(raw.get("release_event_type") or "path_release", f"{item_id}.release_event_type")
+        raw_participants = raw.get("participants")
+        if raw_participants is not None:
+            if not isinstance(raw_participants, Sequence) or isinstance(raw_participants, (str, bytes)) or not raw_participants or len(raw_participants) > 16:
+                raise DomainSimulationError(f"{item_id}.participants must be a non-empty id array")
+            item["participants"] = [_safe_id(value, f"{item_id}.participants") for value in raw_participants]
+        distance, point, tangent, offset = _project_path(item, bodies[body_id]["position"])
+        item["_s"] = distance; item["initial_projection_error"] = _round(offset)
+        bodies[body_id]["position"] = point
+        tangent_speed = bodies[body_id]["velocity"][0] * tangent[0] + bodies[body_id]["velocity"][1] * tangent[1]
+        bodies[body_id]["velocity"] = [tangent_speed * tangent[0], tangent_speed * tangent[1]]
+        result.append(item)
+    return result
+
+
 def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
     """Execute a bounded mechanics_2d declarative specification."""
+    spec, _ = normalize_domain_simulation_spec("mechanics-2d", spec)
     duration = _bounded_number(spec.get("duration", 8), "duration", .01, 30)
     requested_dt = _bounded_number(spec.get("dt", 1 / 120), "dt", 1e-5, .1)
     steps = int(math.ceil(duration / requested_dt))
@@ -195,6 +364,27 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
         pa, _ = _endpoint(constraint, bodies, "a"); pb, _ = _endpoint(constraint, bodies, "b")
         constraint["length"] = _bounded_number(constraint.get("length", math.dist(pa, pb)), f"{constraint['id']}.length", 0, 1e9)
         constraint["color"] = str(constraint.get("color") or "#0f172a")
+    constraints_by_id = {constraint["id"]: constraint for constraint in constraints}
+    active_constraint_ids = set(constraints_by_id)
+
+    path_constraints = _normalise_path_constraints(spec, bodies)
+    path_constraints_by_id = {constraint["id"]: constraint for constraint in path_constraints}
+    duplicate_constraint_ids = set(constraints_by_id) & set(path_constraints_by_id)
+    if duplicate_constraint_ids:
+        raise DomainSimulationError(
+            f"constraint ids must be unique across distance and path constraints: {sorted(duplicate_constraint_ids)}"
+        )
+    path_by_body = {constraint["body"]: constraint for constraint in path_constraints}
+    distance_bodies = {
+        str(constraint[key])
+        for constraint in constraints
+        for key in ("body_a", "body_b")
+        if constraint.get(key)
+    }
+    overlap = distance_bodies & set(path_by_body)
+    if overlap:
+        raise DomainSimulationError(f"bodies cannot have distance and path constraints simultaneously: {sorted(overlap)}")
+    active_path_constraint_ids = set(path_constraints_by_id)
 
     forces = []
     raw_forces = spec.get("forces") or []
@@ -218,20 +408,154 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
     raw_actions = spec.get("actions") or []
     if not isinstance(raw_actions, list) or len(raw_actions) > 64:
         raise DomainSimulationError("actions must contain at most 64 entries")
+    body_actions = {"impulse", "set_position", "set_velocity", "set_angular_velocity"}
+    constraint_actions = {"remove_distance_constraint", "restore_distance_constraint"}
+    path_actions = {"remove_path_constraint", "restore_path_constraint"}
+    event_actions = {"emit_event"}
     for index, raw in enumerate(raw_actions):
         if not isinstance(raw, Mapping):
             raise DomainSimulationError(f"actions[{index}] must be an object")
         kind = str(raw.get("type") or "").lower()
-        if kind not in {"impulse", "set_velocity", "set_angular_velocity"}:
+        if kind not in body_actions | constraint_actions | path_actions | event_actions:
             raise DomainSimulationError(f"unsupported mechanics action {kind!r}")
-        target = _safe_id(raw.get("target"), f"actions[{index}].target")
-        if target not in bodies:
-            raise DomainSimulationError(f"action references unknown body {target!r}")
-        value = (_finite_number(raw.get("value"), f"actions[{index}].value") if kind == "set_angular_velocity"
-                 else list(_vec2(raw.get("value"), f"actions[{index}].value")))
-        actions.append({"time": _bounded_number(raw.get("time"), f"actions[{index}].time", 0, duration),
-                        "type": kind, "target": target, "value": value})
-    actions.sort(key=lambda item: item["time"])
+        target_id = _safe_id(raw.get("target"), f"actions[{index}].target")
+        if kind in body_actions | event_actions and target_id not in bodies:
+            raise DomainSimulationError(f"action references unknown body {target_id!r}")
+        if kind in constraint_actions and target_id not in constraints_by_id:
+            raise DomainSimulationError(
+                f"action references unknown distance constraint {target_id!r}"
+            )
+        if kind in path_actions and target_id not in path_constraints_by_id:
+            raise DomainSimulationError(
+                f"action references unknown path constraint {target_id!r}"
+            )
+
+        action: Dict[str, Any] = {"type": kind, "target": target_id}
+        if kind == "set_angular_velocity":
+            action["value"] = _finite_number(raw.get("value"), f"actions[{index}].value")
+        elif kind in {"impulse", "set_position", "set_velocity"}:
+            action["value"] = list(_vec2(raw.get("value"), f"actions[{index}].value"))
+
+        raw_time = raw.get("time")
+        raw_trigger = raw.get("trigger")
+        if raw_time is not None and raw_trigger is not None:
+            raise DomainSimulationError(f"actions[{index}] must use time or trigger, not both")
+        if raw_time is None and raw_trigger is None:
+            raise DomainSimulationError(f"actions[{index}] requires time or trigger")
+        if raw_time is not None:
+            action["time"] = _bounded_number(
+                raw_time, f"actions[{index}].time", 0, duration
+            )
+        else:
+            if not isinstance(raw_trigger, Mapping):
+                raise DomainSimulationError(f"actions[{index}].trigger must be an object")
+            trigger_type = str(raw_trigger.get("type") or "").strip().lower()
+            if trigger_type not in {"position_crossing", "speed_below"}:
+                raise DomainSimulationError(
+                    f"unsupported mechanics action trigger {trigger_type!r}"
+                )
+            trigger_body = _safe_id(
+                raw_trigger.get("body"), f"actions[{index}].trigger.body"
+            )
+            if trigger_body not in bodies:
+                raise DomainSimulationError(
+                    f"action trigger references unknown body {trigger_body!r}"
+                )
+            trigger: Dict[str, Any] = {
+                "type": trigger_type,
+                "body": trigger_body,
+                "after_time": _bounded_number(
+                    raw_trigger.get("after_time", 0),
+                    f"actions[{index}].trigger.after_time",
+                    0,
+                    duration,
+                ),
+            }
+            if trigger_type == "position_crossing":
+                axis = str(raw_trigger.get("axis") or "").strip().lower()
+                if axis not in {"x", "y"}:
+                    raise DomainSimulationError(
+                        f"actions[{index}].trigger.axis must be x or y"
+                    )
+                direction = str(raw_trigger.get("direction") or "either").strip().lower()
+                if direction not in {"positive", "negative", "either"}:
+                    raise DomainSimulationError(
+                        f"actions[{index}].trigger.direction is unsupported"
+                    )
+                trigger.update({
+                    "axis": axis,
+                    "value": _finite_number(
+                        raw_trigger.get("value"), f"actions[{index}].trigger.value"
+                    ),
+                    "direction": direction,
+                })
+            else:
+                trigger["threshold"] = _bounded_number(
+                    raw_trigger.get("threshold"),
+                    f"actions[{index}].trigger.threshold",
+                    0,
+                    1e12,
+                )
+            action["trigger"] = trigger
+
+        if raw.get("event_id") is not None:
+            action["event_id"] = _safe_id(
+                raw.get("event_id"), f"actions[{index}].event_id"
+            )
+        if raw.get("event_type") is not None:
+            action["event_type"] = _safe_id(
+                raw.get("event_type"), f"actions[{index}].event_type"
+            )
+        raw_participants = raw.get("participants")
+        if raw_participants is not None:
+            if (
+                not isinstance(raw_participants, Sequence)
+                or isinstance(raw_participants, (str, bytes))
+                or not raw_participants
+                or len(raw_participants) > 16
+            ):
+                raise DomainSimulationError(
+                    f"actions[{index}].participants must be a non-empty id array"
+                )
+            action["participants"] = [
+                _safe_id(item, f"actions[{index}].participants[{participant_index}]")
+                for participant_index, item in enumerate(raw_participants)
+            ]
+        action["label"] = str(raw.get("label") or "")[:160]
+        actions.append(action)
+    timed_actions = sorted(
+        (action for action in actions if "time" in action), key=lambda item: item["time"]
+    )
+    triggered_actions = [action for action in actions if "trigger" in action]
+
+    phases = []
+    raw_phases = spec.get("phases") or []
+    if not isinstance(raw_phases, list) or len(raw_phases) > 24:
+        raise DomainSimulationError("phases must contain at most 24 entries")
+    for index, raw in enumerate(raw_phases):
+        if not isinstance(raw, Mapping):
+            raise DomainSimulationError(f"phases[{index}] must be an object")
+        phase_id = _safe_id(raw.get("id"), f"phases[{index}].id")
+        start_time = _bounded_number(
+            raw.get("start_time"), f"phases[{index}].start_time", 0, duration
+        )
+        end_time = _bounded_number(
+            raw.get("end_time"), f"phases[{index}].end_time", 0, duration
+        )
+        if end_time < start_time:
+            raise DomainSimulationError(f"phases[{index}].end_time must not precede start_time")
+        phases.append({
+            "id": phase_id,
+            "start_time": start_time,
+            "end_time": end_time,
+            "label": str(raw.get("label") or phase_id)[:120],
+            "description": str(raw.get("description") or "")[:240],
+        })
+    phases.sort(key=lambda item: (item["start_time"], item["end_time"]))
+
+    visual_strategy = str(spec.get("visual_strategy") or "continuous_process").strip().lower()
+    if visual_strategy not in {"continuous_process", "component_decomposition"}:
+        raise DomainSimulationError(f"unsupported visual_strategy {visual_strategy!r}")
 
     # Annotations are optional rendering hints, not part of the physical model.
     # Models occasionally emit descriptive targets such as "ball trajectory"
@@ -371,11 +695,38 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
         for body_id, body in bodies.items():
             vx, vy = body["velocity"]
             force = list(net.get(body_id, [0, 0]))
-            acceleration = (
+            free_acceleration = (
                 [force[0] * body["_inv_mass"], force[1] * body["_inv_mass"]]
                 if body["motion_type"] == "dynamic"
                 else [0.0, 0.0]
             )
+            acceleration = free_acceleration
+            path = path_by_body.get(body_id)
+            if path is not None and path["id"] in active_path_constraint_ids:
+                distance = float(path["_s"])
+                _, tangent = _sample_path(path, distance)
+                tangent_acceleration = (
+                    free_acceleration[0] * tangent[0]
+                    + free_acceleration[1] * tangent[1]
+                )
+                span = max(float(path["_length"]) * 1e-5, 1e-7)
+                before = max(0.0, distance - span)
+                after = min(float(path["_length"]), distance + span)
+                curvature = [0.0, 0.0]
+                if after - before > 1e-12:
+                    _, tangent_before = _sample_path(path, before)
+                    _, tangent_after = _sample_path(path, after)
+                    curvature = [
+                        (tangent_after[axis] - tangent_before[axis]) / (after - before)
+                        for axis in range(2)
+                    ]
+                tangent_speed = vx * tangent[0] + vy * tangent[1]
+                acceleration = [
+                    tangent_acceleration * tangent[axis]
+                    + tangent_speed * tangent_speed * curvature[axis]
+                    for axis in range(2)
+                ]
+                force = [component * body["mass"] for component in acceleration]
             speed = math.hypot(vx, vy)
             objects[body_id] = {
                 "position": [_round(value) for value in body["position"]],
@@ -389,6 +740,9 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
         return {
             "t": _round(time_value), "objects": objects,
             "energies": frame_energies(objects),
+            "active_constraints": sorted(
+                active_constraint_ids | active_path_constraint_ids
+            ),
         }
 
     def snapshot(time_value: float, net: Mapping[str, Sequence[float]]) -> None:
@@ -457,21 +811,192 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
             fx, fy = magnitude * ux, magnitude * uy
             if ida: net[ida][0] += fx; net[ida][1] += fy
             if idb: net[idb][0] -= fx; net[idb][1] -= fy
+
+        # Add the acceleration-level reaction needed by each active rigid link.
+        # Position/velocity projection below remains a small numerical cleanup;
+        # it is no longer asked to manufacture the entire constraint force.
+        for constraint in constraints:
+            if constraint["id"] not in active_constraint_ids:
+                continue
+            pa, ida = _endpoint(constraint, bodies, "a")
+            pb, idb = _endpoint(constraint, bodies, "b")
+            dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+            distance = math.hypot(dx, dy)
+            inv_a = bodies[ida]["_inv_mass"] if ida else 0.0
+            inv_b = bodies[idb]["_inv_mass"] if idb else 0.0
+            inv_sum = inv_a + inv_b
+            if distance <= 1e-12 or inv_sum <= 0:
+                continue
+            nx, ny = dx / distance, dy / distance
+            va = bodies[ida]["velocity"] if ida else [0.0, 0.0]
+            vb = bodies[idb]["velocity"] if idb else [0.0, 0.0]
+            relative_speed = (vb[0] - va[0]) * nx + (vb[1] - va[1]) * ny
+            acceleration_a = (
+                [net[ida][0] * inv_a, net[ida][1] * inv_a] if ida else [0.0, 0.0]
+            )
+            acceleration_b = (
+                [net[idb][0] * inv_b, net[idb][1] * inv_b] if idb else [0.0, 0.0]
+            )
+            free_radial_acceleration = (
+                (acceleration_b[0] - acceleration_a[0]) * nx
+                + (acceleration_b[1] - acceleration_a[1]) * ny
+            )
+            reaction = (
+                free_radial_acceleration + relative_speed * relative_speed / distance
+            ) / inv_sum
+            fx, fy = reaction * nx, reaction * ny
+            if ida:
+                net[ida][0] += fx; net[ida][1] += fy
+            if idb:
+                net[idb][0] -= fx; net[idb][1] -= fy
         return net
+
+    def action_participants(action: Mapping[str, Any]) -> List[str]:
+        if action.get("participants"):
+            return [str(item) for item in action["participants"]]
+        if action["type"] in {"remove_distance_constraint", "restore_distance_constraint"}:
+            constraint = constraints_by_id[str(action["target"])]
+            participants = [str(action["target"])]
+            participants.extend(
+                str(constraint[key])
+                for key in ("body_a", "body_b")
+                if constraint.get(key)
+            )
+            return participants
+        if action["type"] in {"remove_path_constraint", "restore_path_constraint"}:
+            constraint = path_constraints_by_id[str(action["target"])]
+            return [str(constraint["body"]), str(constraint["id"])]
+        return [str(action["target"])]
+
+    def execute_action(action: Mapping[str, Any], time_value: float) -> None:
+        kind = str(action["type"])
+        if kind == "remove_distance_constraint":
+            active_constraint_ids.discard(str(action["target"]))
+        elif kind == "restore_distance_constraint":
+            active_constraint_ids.add(str(action["target"]))
+        elif kind == "remove_path_constraint":
+            active_path_constraint_ids.discard(str(action["target"]))
+        elif kind == "restore_path_constraint":
+            constraint = path_constraints_by_id[str(action["target"])]
+            body = bodies[str(constraint["body"])]
+            distance, point, tangent, _ = _project_path(constraint, body["position"])
+            constraint["_s"] = distance
+            body["position"] = point
+            tangent_speed = body["velocity"][0] * tangent[0] + body["velocity"][1] * tangent[1]
+            body["velocity"] = [tangent_speed * tangent[0], tangent_speed * tangent[1]]
+            active_path_constraint_ids.add(str(action["target"]))
+        elif kind == "emit_event":
+            pass
+        else:
+            body = bodies[str(action["target"])]
+            if kind == "impulse" and body["_inv_mass"]:
+                body["velocity"][0] += action["value"][0] * body["_inv_mass"]
+                body["velocity"][1] += action["value"][1] * body["_inv_mass"]
+            elif kind == "set_position":
+                body["position"] = list(action["value"])
+            elif kind == "set_velocity":
+                body["velocity"] = list(action["value"])
+            elif kind == "set_angular_velocity":
+                body["angular_velocity"] = float(action["value"])
+        event = {
+            "type": str(action.get("event_type") or kind),
+            "action_type": kind,
+            "t": _round(time_value),
+            "participants": action_participants(action),
+        }
+        if action.get("event_id"):
+            event["id"] = str(action["event_id"])
+        if action.get("label"):
+            event["label"] = str(action["label"])
+        # Keep an exact post-intervention state so target checks and teaching
+        # overlays do not have to guess between adjacent integration frames.
+        event["snapshot"] = frame_at(time_value, net_forces(time_value))
+        events.append(event)
+
+    def trigger_fired(
+        action: Mapping[str, Any],
+        previous: Mapping[str, Mapping[str, Sequence[float]]],
+        time_value: float,
+    ) -> bool:
+        trigger = action["trigger"]
+        if time_value + 1e-12 < trigger["after_time"]:
+            return False
+        body_id = str(trigger["body"])
+        body = bodies[body_id]
+        if trigger["type"] == "position_crossing":
+            axis = 0 if trigger["axis"] == "x" else 1
+            old = float(previous[body_id]["position"][axis])
+            new = float(body["position"][axis])
+            value = float(trigger["value"])
+            positive = old < value <= new
+            negative = old > value >= new
+            if trigger["direction"] == "positive":
+                return positive
+            if trigger["direction"] == "negative":
+                return negative
+            return positive or negative
+        old_speed = math.hypot(*previous[body_id]["velocity"])
+        new_speed = math.hypot(*body["velocity"])
+        threshold = float(trigger["threshold"])
+        return old_speed > threshold >= new_speed
+
+    pending_path_releases: List[Dict[str, Any]] = []
+
+    def advance_path_body(
+        body: Dict[str, Any], force: Sequence[float], time_value: float
+    ) -> None:
+        constraint = path_by_body[body["id"]]
+        constraint_id = str(constraint["id"])
+        point, tangent = _sample_path(constraint, constraint["_s"])
+        tangent_speed = body["velocity"][0] * tangent[0] + body["velocity"][1] * tangent[1]
+        tangent_acceleration = (
+            (force[0] * tangent[0] + force[1] * tangent[1]) * body["_inv_mass"]
+            if body["motion_type"] == "dynamic" else 0.0
+        )
+        candidate_distance = (
+            constraint["_s"] + tangent_speed * dt
+            + 0.5 * tangent_acceleration * dt * dt
+        )
+        next_speed = tangent_speed + tangent_acceleration * dt
+        next_speed *= max(0, 1 - body["linear_damping"] * dt)
+        length = float(constraint["_length"])
+        endpoint: str | None = None
+        if candidate_distance <= 0 and next_speed < 0 and constraint["auto_release"] in {"start", "either"}:
+            endpoint = "start"
+            candidate_distance = 0.0
+        elif candidate_distance >= length and next_speed > 0 and constraint["auto_release"] in {"end", "either"}:
+            endpoint = "end"
+            candidate_distance = length
+        elif candidate_distance < 0:
+            candidate_distance = 0.0; next_speed = 0.0
+        elif candidate_distance > length:
+            candidate_distance = length; next_speed = 0.0
+
+        next_point, next_tangent = _sample_path(constraint, candidate_distance)
+        constraint["_s"] = candidate_distance
+        body["position"] = next_point
+        body["velocity"] = [next_speed * next_tangent[0], next_speed * next_tangent[1]]
+        if endpoint is not None:
+            active_path_constraint_ids.discard(constraint_id)
+            pending_path_releases.append({
+                "id": constraint["release_event_id"],
+                "type": constraint["release_event_type"],
+                "action_type": "automatic_path_release",
+                "t": _round(time_value),
+                "participants": list(constraint.get("participants") or [body["id"], constraint_id]),
+                "label": constraint.get("label") or constraint_id,
+                "constraint": constraint_id,
+                "endpoint": endpoint,
+            })
 
     snapshot(0, net_forces(0))
     for step in range(1, steps + 1):
         current_time = (step - 1) * dt
-        while action_index < len(actions) and actions[action_index]["time"] <= current_time + 1e-12:
-            action = actions[action_index]; body = bodies[action["target"]]
-            if action["type"] == "impulse" and body["_inv_mass"]:
-                body["velocity"][0] += action["value"][0] * body["_inv_mass"]
-                body["velocity"][1] += action["value"][1] * body["_inv_mass"]
-            elif action["type"] == "set_velocity":
-                body["velocity"] = list(action["value"])
-            else:
-                body["angular_velocity"] = float(action["value"])
-            events.append({"type": action["type"], "t": _round(current_time), "participants": [body["id"]]})
+        while (
+            action_index < len(timed_actions)
+            and timed_actions[action_index]["time"] <= current_time + 1e-12
+        ):
+            execute_action(timed_actions[action_index], current_time)
             action_index += 1
 
         net = net_forces(current_time)
@@ -484,7 +1009,14 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
             for body_id, body in bodies.items()
         }
         for body_id, body in bodies.items():
-            if body["motion_type"] == "dynamic":
+            path_constraint = path_by_body.get(body_id)
+            if (
+                path_constraint is not None
+                and path_constraint["id"] in active_path_constraint_ids
+                and body["motion_type"] in {"dynamic", "kinematic"}
+            ):
+                advance_path_body(body, net[body_id], step * dt)
+            elif body["motion_type"] == "dynamic":
                 ax = net[body_id][0] * body["_inv_mass"]
                 ay = net[body_id][1] * body["_inv_mass"]
                 body["position"][0] += body["velocity"][0] * dt + 0.5 * ax * dt * dt
@@ -605,6 +1137,8 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
 
         for _ in range(4):
             for constraint in constraints:
+                if constraint["id"] not in active_constraint_ids:
+                    continue
                 pa, ida = _endpoint(constraint, bodies, "a"); pb, idb = _endpoint(constraint, bodies, "b")
                 dx, dy = pb[0] - pa[0], pb[1] - pa[1]; distance = math.hypot(dx, dy)
                 inv_a = bodies[ida]["_inv_mass"] if ida else 0; inv_b = bodies[idb]["_inv_mass"] if idb else 0
@@ -615,6 +1149,45 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
                     bodies[ida]["position"][0] += cx * inv_a / (inv_a + inv_b); bodies[ida]["position"][1] += cy * inv_a / (inv_a + inv_b)
                 if idb:
                     bodies[idb]["position"][0] -= cx * inv_b / (inv_a + inv_b); bodies[idb]["position"][1] -= cy * inv_b / (inv_a + inv_b)
+
+        # Position projection alone lets gravity accumulate impossible radial
+        # velocity while the body remains pinned to the constraint surface.
+        # Project relative velocity onto the tangent space as well.
+        for constraint in constraints:
+            if constraint["id"] not in active_constraint_ids:
+                continue
+            pa, ida = _endpoint(constraint, bodies, "a"); pb, idb = _endpoint(constraint, bodies, "b")
+            dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+            distance = math.hypot(dx, dy)
+            inv_a = bodies[ida]["_inv_mass"] if ida else 0
+            inv_b = bodies[idb]["_inv_mass"] if idb else 0
+            if distance <= 1e-12 or inv_a + inv_b <= 0:
+                continue
+            nx, ny = dx / distance, dy / distance
+            va = bodies[ida]["velocity"] if ida else [0.0, 0.0]
+            vb = bodies[idb]["velocity"] if idb else [0.0, 0.0]
+            radial_speed = (vb[0] - va[0]) * nx + (vb[1] - va[1]) * ny
+            if ida:
+                bodies[ida]["velocity"][0] += radial_speed * nx * inv_a / (inv_a + inv_b)
+                bodies[ida]["velocity"][1] += radial_speed * ny * inv_a / (inv_a + inv_b)
+            if idb:
+                bodies[idb]["velocity"][0] -= radial_speed * nx * inv_b / (inv_a + inv_b)
+                bodies[idb]["velocity"][1] -= radial_speed * ny * inv_b / (inv_a + inv_b)
+
+        if pending_path_releases:
+            for release_event in pending_path_releases:
+                release_event["snapshot"] = frame_at(step * dt, net_forces(step * dt))
+                events.append(release_event)
+            pending_path_releases.clear()
+
+        pending_triggers = []
+        event_time = step * dt
+        for action in triggered_actions:
+            if trigger_fired(action, previous_states, event_time):
+                execute_action(action, event_time)
+            else:
+                pending_triggers.append(action)
+        triggered_actions = pending_triggers
 
         terminal_snapshot = None
         for contact in sorted(contacts - active_contacts):
@@ -644,6 +1217,10 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
             "y_range": [min(state["position"][1] for state in states), max(state["position"][1] for state in states)],
         }
     public_bodies = [{key: value for key, value in body.items() if key != "_inv_mass"} for body in bodies.values()]
+    public_path_constraints = [
+        {key: value for key, value in constraint.items() if not key.startswith("_")}
+        for constraint in path_constraints
+    ]
     return {
         "schema_version": "1.0", "engine": "mechanics-2d", "domain_model": "mechanics_2d",
         "units": trace_units,
@@ -651,7 +1228,9 @@ def simulate_mechanics_2d(spec: Mapping[str, Any]) -> Dict[str, Any]:
         "requested_duration": _round(duration), "playback_duration": _round(playback), "dt": _round(dt),
         "gravity": list(gravity), "potential_reference": list(potential_reference),
         "bounds": bounds, "bodies": public_bodies, "static_geometry": geometry,
-        "springs": springs, "distance_constraints": constraints, "annotations": annotations,
+        "springs": springs, "distance_constraints": constraints,
+        "path_constraints": public_path_constraints, "annotations": annotations,
         "ignored_annotations": ignored_annotations, "visual_instances": visual_instances,
+        "visual_strategy": visual_strategy, "phases": phases,
         "time_series": frames, "events": events, "summary": summary,
     }

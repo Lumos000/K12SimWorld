@@ -21,7 +21,11 @@ _LOOKUP_PATH_RE = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$"
 )
 _DOTTED_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9_.-])"
+    # A leading '-' is an arithmetic unary/binary operator, not part of the
+    # lookup token. Keeping '-' in this look-behind made expressions such as
+    # ``-objects.ball.velocity.1`` survive normalization as unsafe Attribute
+    # syntax. Hyphens remain valid inside lookup path segments.
+    r"(?<![A-Za-z0-9_.])"
     r"([A-Za-z_][A-Za-z0-9_-]*(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))+)"
     r"(?![A-Za-z0-9_.-])"
 )

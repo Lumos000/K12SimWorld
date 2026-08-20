@@ -55,6 +55,38 @@ class CliResumeTest(unittest.TestCase):
             manifests = list(read_records(output / "manifests.jsonl"))
             self.assertEqual([row["problem_id"] for row in manifests], ["p1", "p2"])
 
+    def test_parallel_generation_keeps_benchmark_order(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            benchmark = root / "benchmark.jsonl"
+            output = root / "runs"
+            ids = [f"p{index}" for index in range(6)]
+            rows = [
+                {"problem_id": item_id, "question": "物体如何运动？", "subject": "physics-g9"}
+                for item_id in ids
+            ]
+            benchmark.write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
+            )
+            args = SimpleNamespace(
+                benchmark=str(benchmark), output_dir=str(output), limit=0,
+                engine=None, resume=False, retry_failed=False, jobs=2, model="fake",
+            )
+            workers = []
+
+            def factory():
+                worker = FakePipeline(output)
+                workers.append(worker)
+                return worker
+
+            self.assertEqual(
+                _run_generation(args, factory(), pipeline_factory=factory), 0
+            )
+            calls = sorted(call for worker in workers for call in worker.calls)
+            self.assertEqual(calls, sorted(ids))
+            manifests = list(read_records(output / "manifests.jsonl"))
+            self.assertEqual([row["problem_id"] for row in manifests], ids)
+
 
 if __name__ == "__main__":
     unittest.main()

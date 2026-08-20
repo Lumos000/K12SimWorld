@@ -2,19 +2,36 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
+const gpuMode = String(process.env.K12SIMWORLD_BROWSER_GPU || 'auto').toLowerCase();
+function chromiumArgs() {
+    const args = ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"];
+    if (gpuMode === 'off') {
+        args.push("--disable-gpu", "--enable-unsafe-swiftshader");
+    } else {
+        args.push("--enable-gpu", "--ignore-gpu-blocklist", "--enable-zero-copy");
+        if (gpuMode === 'auto') args.push("--enable-unsafe-swiftshader");
+    }
+    return args;
+}
+
+async function reportGpu(page) {
+    const renderer = await page.evaluate(() => {
+        const probe = document.createElement('canvas');
+        const gl = probe.getContext('webgl') || probe.getContext('experimental-webgl');
+        if (!gl) return 'WebGL unavailable';
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        return ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    });
+    console.log(`[GPU] requested=${gpuMode}; renderer=${renderer}`);
+}
+
 async function recordAnimation(folderPath) {
     const downloadPath = path.join(folderPath, 'downloads');
 
     const browser = await puppeteer.launch({
         headless: true,
         defaultViewport: null,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-gpu",
-            "--enable-unsafe-swiftshader",
-            "--allow-file-access-from-files"
-        ]
+        args: chromiumArgs()
     });
 
     try {
@@ -61,6 +78,7 @@ async function recordAnimation(folderPath) {
         });
 
         console.log(`[NAVIGATE] Page navigation completed`);
+        await reportGpu(page);
 
         // 等待一点时间让 JavaScript 执行
         await new Promise(resolve => setTimeout(resolve, 200));

@@ -228,6 +228,67 @@ class CanvasHtmlRenderer:
         ]
         return self.run_and_log(command, log_path, cwd=None) == 0
 
+    def _render_mode(self, content_type: str) -> str:
+        """Choose real-time recording or deterministic offline frame capture."""
+        configured = str(os.environ.get("K12SIMWORLD_RENDER_MODE", "auto")).strip().lower()
+        if configured not in {"auto", "frames", "realtime"}:
+            raise RenderingError(
+                "K12SIMWORLD_RENDER_MODE must be auto, frames, or realtime"
+            )
+        if configured == "frames" and self.label != "Domain Canvas":
+            raise RenderingError(
+                "offline frame capture is currently supported only for trusted Domain Canvas scenes"
+            )
+        if configured == "auto":
+            return "frames" if content_type == "html" and self.label == "Domain Canvas" else "realtime"
+        return configured
+
+    def _capture_fps(self) -> float:
+        """Return capture fps; default 5 preserves the historical MediaRecorder output."""
+        raw = str(os.environ.get("K12SIMWORLD_CAPTURE_FPS", "5")).strip()
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise RenderingError("K12SIMWORLD_CAPTURE_FPS must be numeric") from exc
+        if value <= 0 or value > 60:
+            raise RenderingError("K12SIMWORLD_CAPTURE_FPS must be in (0, 60]")
+        return value
+
+    def _encode_png_frames(
+        self, frames_dir: str, output_path: str, log_path: str, fps: float
+    ) -> bool:
+        """Encode deterministic PNG frames, with optional NVENC and a CPU fallback."""
+        encoder = str(
+            os.environ.get("K12SIMWORLD_FFMPEG_ENCODER", "libx264")
+        ).strip().lower()
+        if encoder not in {"libx264", "h264_nvenc"}:
+            raise RenderingError(
+                "K12SIMWORLD_FFMPEG_ENCODER must be libx264 or h264_nvenc"
+            )
+        frame_input = os.path.join(frames_dir, "frame_*.png")
+
+        def command(codec: str) -> list[str]:
+            codec_options = (
+                ["-preset", "p4", "-cq", "23"]
+                if codec == "h264_nvenc"
+                else ["-preset", "fast", "-crf", "23"]
+            )
+            return [
+                "ffmpeg", "-y", "-framerate", str(float(fps)),
+                "-pattern_type", "glob", "-i", frame_input,
+                "-c:v", codec, *codec_options,
+                "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p",
+                "-movflags", "+faststart", output_path,
+            ]
+
+        codecs = [encoder] if encoder == "libx264" else ["h264_nvenc", "libx264"]
+        for codec in codecs:
+            if self.run_and_log(command(codec), log_path, cwd=None) == 0:
+                if self._probe_video(output_path, log_path):
+                    return True
+            print(f"[FFmpeg] {codec} failed; trying fallback")
+        return False
+
     def render(self, document: str, output_path: str, content_type: str = "html") -> str:
         """
         Render an animation to MP4.
@@ -274,8 +335,17 @@ class CanvasHtmlRenderer:
 
             print("-" * 100)
             start_time = time.time()
+            mode = self._render_mode(content_type)
+            script = "fast_main.js" if mode == "frames" else "main.js"
+            command = ["node", os.path.join(temp_dir, script), temp_dir]
+            capture_fps = None
+            if mode == "frames":
+                capture_fps = self._capture_fps()
+                command.extend(
+                    [str(capture_fps), str(float(self.target.duration_s))]
+                )
             returncode = self.run_and_log(
-                ["node", os.path.join(temp_dir, "main.js"), temp_dir],
+                command,
                 log_path,
                 cwd=self.project_root,
             )
@@ -285,21 +355,31 @@ class CanvasHtmlRenderer:
             if returncode != 0:
                 raise RenderingError(f"{self.label}渲染失败，返回代码 {returncode}", log_path)
 
-            webm_path = os.path.join(temp_dir, "downloads", "output.webm")
-            print(f"{self.label}渲染耗时 {end_time - start_time:.2f} 秒")
-
-            if not os.path.exists(webm_path):
-                raise RenderingError("WebM文件未找到", log_path)
-
-            self._wait_for_file_stable(webm_path)
-
-            if not self._probe_video(webm_path, log_path):
-                raise RenderingError(
-                    f"WebM文件损坏或不含视频流，详见日志: {log_path}", log_path
-                )
-
-            if not self._convert_webm_to_mp4(webm_path, output_path, log_path):
-                raise RenderingError(f"FFmpeg转换失败，详见日志: {log_path}", log_path)
+            print(
+                f"{self.label}渲染耗时 {end_time - start_time:.2f} 秒 "
+                f"(mode={mode})"
+            )
+            if mode == "frames":
+                frames_dir = os.path.join(temp_dir, "frames")
+                if not os.path.isdir(frames_dir) or not os.listdir(frames_dir):
+                    raise RenderingError("离线逐帧捕获未产生 PNG 帧", log_path)
+                if capture_fps is None:
+                    raise RenderingError("离线逐帧捕获缺少帧率", log_path)
+                if not self._encode_png_frames(
+                    frames_dir, output_path, log_path, capture_fps
+                ):
+                    raise RenderingError(f"PNG序列编码失败，详见日志: {log_path}", log_path)
+            else:
+                webm_path = os.path.join(temp_dir, "downloads", "output.webm")
+                if not os.path.exists(webm_path):
+                    raise RenderingError("WebM文件未找到", log_path)
+                self._wait_for_file_stable(webm_path)
+                if not self._probe_video(webm_path, log_path):
+                    raise RenderingError(
+                        f"WebM文件损坏或不含视频流，详见日志: {log_path}", log_path
+                    )
+                if not self._convert_webm_to_mp4(webm_path, output_path, log_path):
+                    raise RenderingError(f"FFmpeg转换失败，详见日志: {log_path}", log_path)
 
         # Optional normalization (fps/duration/resolution). By default we keep the original
         # recorded duration/fps to avoid intentional stretching/trimming.

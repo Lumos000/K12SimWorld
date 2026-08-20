@@ -1,0 +1,63 @@
+{
+  "domain_model": "mechanics_2d",
+  "duration": 1.2,
+  "dt": 0.0041666667,
+  "playback_duration": 6,
+  "gravity": [0, -9.8],
+  "potential_reference": [0, 0],
+  "bounds": {"x_min": -1.5, "x_max": 2.5, "y_min": -2.4, "y_max": 0.5},
+  "units": {"length": "m", "time": "s", "mass": "kg"},
+  "bodies": [
+    {
+      "id": "bob", "shape": "circle", "motion_type": "dynamic",
+      "mass": 0.1, "radius": 0.08, "collision_radius": 0,
+      "position": [-0.8, -0.6], "velocity": [0, 0],
+      "restitution": 0, "friction": 0, "linear_damping": 0,
+      "label": "pendulum bob", "color": "#ef4444"
+    }
+  ],
+  "static_geometry": [
+    {
+      "id": "ground", "type": "segment", "p1": [-1.5, -2], "p2": [2.5, -2],
+      "normal": [0, 1], "restitution": 0, "friction": 0.2,
+      "label": "ground", "color": "#475569"
+    }
+  ],
+  "distance_constraints": [
+    {
+      "id": "rope_link", "anchor_a": [0, 0], "body_b": "bob",
+      "length": 1, "color": "#0f172a"
+    }
+  ],
+  "actions": [
+    {
+      "type": "remove_distance_constraint", "target": "rope_link",
+      "trigger": {
+        "type": "position_crossing", "body": "bob", "axis": "x",
+        "value": 0, "direction": "positive", "after_time": 0.1
+      },
+      "event_id": "break_at_C", "event_type": "string_break",
+      "participants": ["bob", "string"],
+      "label": "Break at C; tangential velocity is preserved"
+    }
+  ],
+  "phases": [
+    {
+      "id": "swing_to_C", "start_time": 0, "end_time": 0.54,
+      "label": "Phase 1: swing from A to C",
+      "description": "The rope constrains the bob to a circular arc."
+    },
+    {
+      "id": "projectile_after_break", "start_time": 0.54, "end_time": 1.2,
+      "label": "Phase 2: projectile motion after the break",
+      "description": "The rope disappears and the bob keeps its tangential velocity."
+    }
+  ],
+  "visual_strategy": "continuous_process",
+  "visual_instances": [],
+  "annotations": [
+    {"type": "trail", "target": "bob"},
+    {"type": "velocity_arrow", "target": "bob"},
+    {"type": "force_arrow", "target": "bob"}
+  ]
+}

@@ -490,6 +490,11 @@ class K12SimWorldPipeline:
         contract: SimulationContract,
     ) -> Tuple[Dict[str, Any], Optional[ModelResponse], List[Dict[str, Any]]]:
         first_report = validate_candidate_contract(contract, payload)
+        process_warnings = [
+            str(item) for item in payload.get("validation_warnings") or [] if str(item).strip()
+        ]
+        if process_warnings:
+            first_report["process_fidelity_warnings"] = process_warnings
         attempts = [first_report]
         if first_report.get("passed") or first_report.get("status") == "not_evaluable":
             return payload, None, attempts

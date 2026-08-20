@@ -258,6 +258,7 @@ const {context_name} = {overlay_name}.getContext(\"2d\");"""
             """<script>
 window.addEventListener('load', () => {
   const start = () => {
+    if (window.__k12simFastCaptureRequested) return;
     if (window.__k12simRecording || typeof setupRecording !== 'function') return;
     const canvas = document.querySelector('[data-k12-recording="true"]') ||
       document.querySelector('canvas');

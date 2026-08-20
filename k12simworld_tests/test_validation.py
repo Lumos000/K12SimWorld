@@ -1,5 +1,6 @@
 import unittest
 
+from k12simworld.domain_compiler import compile_domain_program
 from k12simworld.models import EduWorldSpec, StoryBlock
 from k12simworld.validation import (
     validate_document,
@@ -52,6 +53,42 @@ class ValidationTest(unittest.TestCase):
         trusted = validate_document(document, "mechanics-2d", trusted_compiled=True)
         self.assertTrue(trusted.valid, trusted.errors)
         self.assertTrue(any("trusted compiler" in item for item in trusted.warnings))
+
+    def test_process_fidelity_warnings_do_not_block_render(self):
+        spec = EduWorldSpec.from_dict({
+            "problem_id": "pendulum", "coordinate_system": {},
+            "objects": [{"id": "bob", "type": "point_mass"}],
+            "parameters": [], "constraints": [], "initial_state": {},
+            "expected_events": [], "learning_goals": [], "visual_conventions": {},
+        })
+        raw = {
+            "engine": "mechanics-2d",
+            "render_spec": {"engine": "mechanics-2d", "duration": 1},
+            "world_spec_sha256": spec.canonical_hash(),
+            "scenes": [{"scene_id": "SIM_1", "simulation_spec": {
+                "domain_model": "mechanics_2d", "duration": 1, "dt": .01,
+                "gravity": [0, 0],
+                "bodies": [{
+                    "id": "bob", "shape": "circle", "position": [1, 0],
+                    "velocity": [0, 1],
+                }],
+                "distance_constraints": [{
+                    "id": "rope", "anchor_a": [0, 0], "body_b": "bob", "length": 1,
+                }],
+                "visual_strategy": "component_decomposition",
+                "visual_instances": [{
+                    "id": "bob_h", "source_object_id": "bob",
+                    "view": "horizontal_projection", "panel": "right",
+                }],
+            }}],
+        }
+        compiled = compile_domain_program(raw, spec)
+        report = validate_program_payload(
+            compiled, spec, [StoryBlock("SIM_1", "sim", "摆动到最低点后断绳")]
+        )
+        self.assertTrue(report.valid, report.errors)
+        self.assertTrue(any("never removes" in item for item in report.warnings))
+        self.assertTrue(any("component panels" in item for item in report.warnings))
 
     def test_rejects_inconsistent_object_unit(self):
         report = validate_world_spec(self._spec())

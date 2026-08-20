@@ -59,7 +59,31 @@ const ctx = canvas.getContext("2d");
 
         composite_selector = "document.querySelector('[data-k12-recording=\"true\"]')"
         self.assertIn(composite_selector, result)
+        self.assertIn("window.__k12simFastCaptureRequested", result)
         self.assertLess(result.index(composite_selector), result.index("document.querySelector('canvas')"))
+
+
+class RenderModeTest(unittest.TestCase):
+    def test_domain_canvas_uses_offline_frames_by_default(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            renderer = CanvasHtmlRenderer(output_dir, label="Domain Canvas")
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("K12SIMWORLD_RENDER_MODE", None)
+                self.assertEqual(renderer._render_mode("html"), "frames")
+                self.assertEqual(renderer._capture_fps(), 5.0)
+
+    def test_free_code_canvas_keeps_realtime_recording(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            renderer = CanvasHtmlRenderer(output_dir, label="Three.js")
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("K12SIMWORLD_RENDER_MODE", None)
+                self.assertEqual(renderer._render_mode("html"), "realtime")
+
+    def test_capture_fps_is_configurable(self):
+        with tempfile.TemporaryDirectory() as output_dir:
+            renderer = CanvasHtmlRenderer(output_dir, label="Domain Canvas")
+            with mock.patch.dict(os.environ, {"K12SIMWORLD_CAPTURE_FPS": "10"}):
+                self.assertEqual(renderer._capture_fps(), 10.0)
 
 
 class VideoProbeTest(unittest.TestCase):

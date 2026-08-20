@@ -18,18 +18,33 @@
 ## 2. 第一层：mechanics-2d
 
 Native 力学题默认使用 `mechanics_2d`：模型声明二维物体、线段、力、冲量、弹簧、
-定长约束和教学标注；可信求解器输出状态 trace；固定 Canvas 编译器负责绘制。同一
-物理对象的左右面板、水平投影或竖直投影使用 `visual_instances`，每个实例通过
-`source_object_id` 引用真实 body。视觉实例没有独立物理状态，不能成为力、动作、
-碰撞、事件或评测目标。
-只有通过空间证据门控的题目才改用 Three.js/Cannon 3D。详见
-`ARCHITECTURE_2D_FIRST_CN.md`。
+定长约束、阶段和事件动作；可信求解器输出状态 trace；固定 Canvas 编译器负责绘制。
+
+完整过程协议包括：
+
+- `visual_strategy="continuous_process"` 为默认值，在一个主画布显示完整物理世界；
+- `phases` 给连续的受约束运动、碰撞/释放和后续自由运动加教学标题；
+- `remove_distance_constraint` / `restore_distance_constraint` 实际改变求解器约束；
+- 动作可按 `time` 触发，也可按 `position_crossing` 或 `speed_below` 事件触发；
+- 每个动作事件保存精确的事后状态快照，可供候选目标和关键事件评测；
+- 距离约束同时计算反作用力、位置投影和速度切空间投影，避免固定位置下径向速度虚增；
+- 互斥反事实必须拆成不同 SIM 场景，每个场景都从规范初态运行到自身结果。
+
+只有题目明确要求分量分解时才设置
+`visual_strategy="component_decomposition"` 并使用 `visual_instances`。视觉实例没有独立
+物理状态，不能成为力、动作、碰撞、事件或评测目标。只有通过空间证据门控的题目才
+改用 Three.js/Cannon 3D。详见 `ARCHITECTURE_2D_FIRST_CN.md`。
 
 ```bash
 python run_k12simworld.py simulate-domain \
   --engine mechanics-2d \
   --spec k12simworld/examples/domain/projectile_2d.json \
   --output-dir /tmp/k12-mechanics-2d-demo --render
+
+python run_k12simworld.py simulate-domain \
+  --engine mechanics-2d \
+  --spec k12simworld/examples/domain/pendulum_break_2d.json \
+  --output-dir /tmp/k12-pendulum-break-demo --render
 ```
 
 ## 3. 第二层：equation-solver

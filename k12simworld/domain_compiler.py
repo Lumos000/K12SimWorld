@@ -15,9 +15,10 @@ from .domain_solvers import (
     simulate_domain,
 )
 from .models import EduWorldSpec
+from .simulation_normalization import normalize_domain_simulation_spec
 
 
-SOLVER_VERSION = "k12-domain-solvers-v1.7-quadratic-contact"
+SOLVER_VERSION = "k12-domain-solvers-v2.0-path-constraints"
 
 
 def canonical_sha256(value: Any) -> str:
@@ -70,26 +71,43 @@ const TRACE={_script_json(_render_trace(trace))};
 const WORLD_OBJECT_IDS={_script_json(world_object_ids)};
 const canvas=document.getElementById('stage'); const ctx=canvas.getContext('2d');
 const W=canvas.width,H=canvas.height, started=performance.now();
+let __k12simManualProgress=null;
+function timelineProgress(duration){{
+  if(Number.isFinite(__k12simManualProgress))return Math.max(0,Math.min(1,__k12simManualProgress));
+  const seconds=Math.max(Number(duration)||0,.001);
+  return (((performance.now()-started)/1000)%seconds)/seconds;
+}}
+function nextFrame(callback){{if(!Number.isFinite(__k12simManualProgress))requestAnimationFrame(callback);}}
+window.__k12simRenderFrame=(progress)=>{{
+  __k12simManualProgress=Math.max(0,Math.min(1,Number(progress)||0));
+  draw();
+  return {{progress:__k12simManualProgress,width:canvas.width,height:canvas.height}};
+}};
 function clear(){{ctx.fillStyle='#f8fafc';ctx.fillRect(0,0,W,H);}}
 function text(value,x,y,color='#0f172a',size=13,align='left'){{ctx.fillStyle=color;ctx.font=size+'px Arial';ctx.textAlign=align;ctx.fillText(String(value),x,y);}}
 function arrow(x1,y1,x2,y2,color='#334155'){{ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();const a=Math.atan2(y2-y1,x2-x1);ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-8*Math.cos(a-.45),y2-8*Math.sin(a-.45));ctx.lineTo(x2-8*Math.cos(a+.45),y2-8*Math.sin(a+.45));ctx.closePath();ctx.fill();}}
 {drawing_script}
-requestAnimationFrame(draw);
+nextFrame(draw);
 </script></body></html>"""
 
 
 def _mechanics_html(spec: Mapping[str, Any], trace: Mapping[str, Any], ids: List[str]) -> str:
     script = r"""
 const b=TRACE.bounds,pad=48;
-const sx=x=>pad+(x-b.x_min)/(b.x_max-b.x_min)*(W-2*pad);
-const sy=y=>H-pad-(y-b.y_min)/(b.y_max-b.y_min)*(H-2*pad);
-const scale=Math.min((W-2*pad)/(b.x_max-b.x_min),(H-2*pad)/(b.y_max-b.y_min));
+const worldWidth=Math.max(b.x_max-b.x_min,1e-9),worldHeight=Math.max(b.y_max-b.y_min,1e-9);
+const scale=Math.min((W-2*pad)/worldWidth,(H-2*pad)/worldHeight);
+const offsetX=(W-worldWidth*scale)/2,offsetY=(H-worldHeight*scale)/2;
+const sx=x=>offsetX+(x-b.x_min)*scale;
+const sy=y=>H-offsetY-(y-b.y_min)*scale;
 const frames=TRACE.time_series, byBody=Object.fromEntries(TRACE.bodies.map(body=>[body.id,body]));
 const annotation=(type,id)=>(TRACE.annotations||[]).some(item=>item.type===type&&item.target===id);
 const visualInstances=TRACE.visual_instances||[];
-const panelMode=visualInstances.length>0;
+const visualStrategy=TRACE.visual_strategy||'continuous_process';
+const panelMode=visualStrategy==='component_decomposition'&&visualInstances.length>0;
+const phases=TRACE.phases||[], traceEvents=TRACE.events||[];
 function point(link,suffix,frame){const id=link['body_'+suffix];return id?frame.objects[id].position:link['anchor_'+suffix];}
-function linkLine(link,frame,color,dashed=false){const a=point(link,'a',frame),b=point(link,'b',frame);ctx.save();ctx.strokeStyle=color;ctx.lineWidth=2;if(dashed)ctx.setLineDash([7,5]);ctx.beginPath();ctx.moveTo(sx(a[0]),sy(a[1]));ctx.lineTo(sx(b[0]),sy(b[1]));ctx.stroke();ctx.restore();}
+function linkLine(link,frame,color,dashed=false){const a=point(link,'a',frame),b=point(link,'b',frame);ctx.save();ctx.strokeStyle=color;ctx.lineWidth=2;if(dashed)ctx.setLineDash([7,5]);ctx.beginPath();ctx.moveTo(sx(a[0]),sy(a[1]));ctx.lineTo(sx(b[0]),sy(b[1]));ctx.stroke();ctx.setLineDash([]);if(link.anchor_a){ctx.fillStyle='#0f172a';ctx.beginPath();ctx.arc(sx(a[0]),sy(a[1]),5,0,Math.PI*2);ctx.fill();}if(link.anchor_b){ctx.fillStyle='#0f172a';ctx.beginPath();ctx.arc(sx(b[0]),sy(b[1]),5,0,Math.PI*2);ctx.fill();}ctx.restore();}
+function drawPath(path){const pts=path.render_points||path.points||[];if(pts.length<2)return;ctx.save();ctx.strokeStyle=path.color||'#0f766e';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(sx(pts[0][0]),sy(pts[0][1]));for(let i=1;i<pts.length;i++)ctx.lineTo(sx(pts[i][0]),sy(pts[i][1]));ctx.stroke();ctx.restore();const mid=pts[Math.floor(pts.length/2)];text(path.label||path.id,sx(mid[0]),sy(mid[1])-10,path.color||'#0f766e',10,'center');}
 function drawBody(body,state){const x=sx(state.position[0]),y=sy(state.position[1]);ctx.save();ctx.translate(x,y);ctx.rotate(-state.angle);ctx.fillStyle=body.color;ctx.strokeStyle='#0f172a';ctx.lineWidth=2;
   if(body.shape==='circle'){ctx.beginPath();ctx.arc(0,0,Math.max(5,body.radius*scale),0,Math.PI*2);ctx.fill();ctx.stroke();}
   else{const width=Math.max(8,body.size[0]*scale),height=Math.max(6,body.size[1]*scale);ctx.fillRect(-width/2,-height/2,width,height);ctx.strokeRect(-width/2,-height/2,width,height);}
@@ -107,15 +125,18 @@ function drawVisualInstance(instance,frame,idx){
   if(annotation('velocity_arrow',body.id)){let vx=state.velocity[0],vy=state.velocity[1];if(instance.view==='horizontal_projection')vy=0;if(instance.view==='vertical_projection')vx=0;const mag=Math.hypot(vx,vy);if(mag>1e-8)arrow(p[0],p[1],p[0]+vx/mag*34,p[1]-vy/mag*34,'#dc2626');}
   ctx.restore();text(instance.label,rect.x+rect.w/2,rect.y+20,'#0f172a',13,'center');const quantity=instance.view==='vertical_projection'?'y='+state.position[1]:instance.view==='horizontal_projection'?'x='+state.position[0]:'x='+state.position[0]+', y='+state.position[1];text(quantity,rect.x+rect.w/2,rect.y+rect.h-10,'#475569',11,'center');
 }
-function draw(){clear();const duration=Math.max(TRACE.playback_duration||8,.001),elapsed=((performance.now()-started)/1000)%duration,idx=Math.min(frames.length-1,Math.floor(elapsed/duration*frames.length)),frame=frames[idx];
+function draw(){clear();const duration=Math.max(TRACE.playback_duration||8,.001),elapsed=timelineProgress(duration)*duration,idx=Math.min(frames.length-1,Math.floor(elapsed/duration*frames.length)),frame=frames[idx];
   ctx.strokeStyle='#e2e8f0';ctx.lineWidth=1;for(let i=0;i<=10;i++){const x=pad+i*(W-2*pad)/10;ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,H-pad);ctx.stroke();const y=pad+i*(H-2*pad)/10;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-pad,y);ctx.stroke();}ctx.strokeStyle='#94a3b8';ctx.strokeRect(pad,pad,W-2*pad,H-2*pad);
-  text('声明式二维力学 · 可信求解',16,24,'#0f172a',17);text(`t=${frame.t}s`,W-16,24,'#475569',13,'right');
-  if(panelMode){visualInstances.forEach(instance=>drawVisualInstance(instance,frame,idx));text('视觉实例共享同一物理状态',W/2,H-15,'#64748b',11,'center');requestAnimationFrame(draw);return;}
+  text('声明式二维力学 · 完整过程',16,24,'#0f172a',17);text(`t=${frame.t}s`,W-16,24,'#475569',13,'right');
+  const phase=phases.find(item=>frame.t>=item.start_time&&frame.t<=item.end_time);if(phase){ctx.fillStyle='#dbeafe';ctx.fillRect(16,34,W-32,27);text(phase.label,26,53,'#1d4ed8',13,'left');}
+  const occurred=traceEvents.filter(item=>item.t<=frame.t);const latest=occurred.length?occurred[occurred.length-1]:null;if(latest){text(latest.label||latest.type,W-18,H-16,'#7c3aed',11,'right');}
+  if(panelMode){visualInstances.forEach(instance=>drawVisualInstance(instance,frame,idx));text('分量分解（题目明确要求时使用）',W/2,H-15,'#64748b',11,'center');nextFrame(draw);return;}
   TRACE.static_geometry.forEach(segment=>{ctx.strokeStyle=segment.color;ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(sx(segment.p1[0]),sy(segment.p1[1]));ctx.lineTo(sx(segment.p2[0]),sy(segment.p2[1]));ctx.stroke();text(segment.label,(sx(segment.p1[0])+sx(segment.p2[0]))/2,(sy(segment.p1[1])+sy(segment.p2[1]))/2+18,'#475569',10,'center');});
-  (TRACE.springs||[]).forEach(link=>linkLine(link,frame,link.color));(TRACE.distance_constraints||[]).forEach(link=>linkLine(link,frame,link.color,true));
+  (TRACE.path_constraints||[]).forEach(drawPath);
+  (TRACE.springs||[]).forEach(link=>linkLine(link,frame,link.color));const active=new Set(frame.active_constraints||[]);(TRACE.distance_constraints||[]).filter(link=>active.has(link.id)).forEach(link=>linkLine(link,frame,link.color,true));
   TRACE.bodies.forEach(body=>{if(annotation('trail',body.id)){ctx.strokeStyle=body.color;ctx.globalAlpha=.45;ctx.lineWidth=2;ctx.beginPath();for(let j=0;j<=idx;j++){const p=frames[j].objects[body.id].position;if(j===0)ctx.moveTo(sx(p[0]),sy(p[1]));else ctx.lineTo(sx(p[0]),sy(p[1]));}ctx.stroke();ctx.globalAlpha=1;}});
   TRACE.bodies.forEach(body=>drawBody(body,frame.objects[body.id]));
-  const labels=[];if((TRACE.annotations||[]).some(a=>a.type==='velocity_arrow'))labels.push('红: 速度');if((TRACE.annotations||[]).some(a=>a.type==='force_arrow'))labels.push('绿: 合力');text(labels.join('   '),16,H-16,'#475569',11);requestAnimationFrame(draw);}
+  const labels=[];if((TRACE.annotations||[]).some(a=>a.type==='velocity_arrow'))labels.push('红: 速度');if((TRACE.annotations||[]).some(a=>a.type==='force_arrow'))labels.push('绿: 合力');text(labels.join('   '),16,H-16,'#475569',11);nextFrame(draw);}
 """
     return _shell("Deterministic declarative 2-D mechanics", "mechanics-2d", spec, trace, ids, script)
 
@@ -127,7 +148,7 @@ const sx=x=>pad+(x-b.x_min)/(b.x_max-b.x_min)*(W-2*pad);
 const sy=y=>H-pad-(y-b.y_min)/(b.y_max-b.y_min)*(H-2*pad);
 function draw(){
   clear(); const frames=TRACE.time_series; const duration=Math.max(TRACE.playback_duration||8,.001);
-  const t=((performance.now()-started)/1000)%duration;
+  const t=timelineProgress(duration)*duration;
   let idx=Math.min(frames.length-1,Math.floor(t/duration*frames.length));
   (TRACE.field_regions||[]).forEach(r=>{const q=r.bounds;ctx.globalAlpha=.28;ctx.fillStyle=r.color;ctx.fillRect(sx(q.x_min),sy(q.y_max),sx(q.x_max)-sx(q.x_min),sy(q.y_min)-sy(q.y_max));ctx.globalAlpha=1;text(r.label,(sx(q.x_min)+sx(q.x_max))/2,sy(q.y_max)+15,'#475569',11,'center');});
   ctx.strokeStyle='#cbd5e1';ctx.lineWidth=1;
@@ -144,7 +165,7 @@ function draw(){
     arrow(x,y,x+state.velocity[0]*18,y-state.velocity[1]*18,'#0f172a');
     text(`${p.label}  t=${frames[idx].t}s  |v|=${state.speed}`,W/2,H-18,p.color,13,'center');
   });
-  requestAnimationFrame(draw);
+  nextFrame(draw);
 }
 """
     return _shell("Charged-particle equation simulation", "equation-solver", spec, trace, ids, script)
@@ -183,7 +204,7 @@ function drawBinding(binding,k,frame){
 }
 function draw(){
   clear(); const duration=Math.max(TRACE.playback_duration||8,.001);
-  const elapsed=((performance.now()-started)/1000)%duration;
+  const elapsed=timelineProgress(duration)*duration;
   const idx=Math.min(frames.length-1,Math.floor(elapsed/duration*frames.length));
   text('方程系统：受限表达式 + RK4',16,25,'#0f172a',17);
   text(`物理时刻 t=${frames[idx].t}`,W-16,25,'#475569',13,'right');
@@ -200,7 +221,7 @@ function draw(){
     text(`${channel}=${Number(current).toPrecision(4)}  [${Number(r.minimum).toPrecision(3)}, ${Number(r.maximum).toPrecision(3)}]`,lx,ly,palette[k%palette.length],10);
   });
   const cursor=sx(frames[idx].t);ctx.strokeStyle='#0f172a';ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(cursor,y0);ctx.lineTo(cursor,y1);ctx.stroke();ctx.setLineDash([]);
-  requestAnimationFrame(draw);
+  nextFrame(draw);
 }
 """
     return _shell("Deterministic equation-system simulation", "equation-solver", spec, trace, ids, script)
@@ -219,11 +240,11 @@ function symbol(c,state,x,y,angle){ctx.save();ctx.translate(x,y);ctx.rotate(angl
   else if(c.type==='switch'){ctx.beginPath();ctx.moveTo(-17,0);ctx.lineTo(17,state.closed?0:-13);ctx.stroke();ctx.beginPath();ctx.arc(-17,0,3,0,Math.PI*2);ctx.arc(17,0,3,0,Math.PI*2);ctx.fillStyle='#334155';ctx.fill();}
   else if(c.type==='voltage_source'){ctx.beginPath();ctx.moveTo(-5,-15);ctx.lineTo(-5,15);ctx.moveTo(6,-9);ctx.lineTo(6,9);ctx.stroke();}
   else{ctx.strokeRect(-18,-8,36,16);}ctx.restore();}
-function draw(){clear();const frames=TRACE.time_series,duration=Math.max(TRACE.duration,.001),t=((performance.now()-started)/1000)%duration,idx=Math.min(frames.length-1,Math.floor(t/duration*frames.length)),frame=frames[idx];
+function draw(){clear();const frames=TRACE.time_series,duration=Math.max(TRACE.duration,.001),t=timelineProgress(duration)*duration,idx=Math.min(frames.length-1,Math.floor(t/duration*frames.length)),frame=frames[idx];
   text('直流电路：KCL / KVL / Ohm',16,25,'#0f172a',17);text(`t=${frame.t}s`,W-16,25,'#475569',13,'right');
   TRACE.components.forEach(c=>{const a=byNode[c.node_a],b=byNode[c.node_b],x1=sx(a.x),y1=sy(a.y),x2=sx(b.x),y2=sy(b.y),mx=(x1+x2)/2,my=(y1+y2)/2,state=frame.components[c.id]||{};ctx.strokeStyle='#64748b';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();symbol(c,state,mx,my,Math.atan2(y2-y1,x2-x1));
     let value='';if(c.type==='ammeter'||c.type==='voltmeter')value=`${state.reading} ${state.reading_unit}`;else if(c.type==='lamp')value=`${state.power} W  ${(100*(state.brightness||0)).toFixed(0)}%`;else value=`I=${state.current} A`;text(c.label,mx,my-23,'#0f172a',12,'center');text(value,mx,my+31,'#475569',11,'center');});
-  nodes.forEach(n=>{const x=sx(n.x),y=sy(n.y);ctx.fillStyle=n.id===TRACE.ground?'#0f172a':'#2563eb';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();text(`${n.label}: ${frame.node_voltages[n.id]} V`,x,y-10,'#334155',11,'center');});requestAnimationFrame(draw);}
+  nodes.forEach(n=>{const x=sx(n.x),y=sy(n.y);ctx.fillStyle=n.id===TRACE.ground?'#0f172a':'#2563eb';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();text(`${n.label}: ${frame.node_voltages[n.id]} V`,x,y-10,'#334155',11,'center');});nextFrame(draw);}
 """
     return _shell("Deterministic DC circuit simulation", "circuit-solver", spec, trace, ids, script)
 
@@ -234,8 +255,8 @@ const all=[];TRACE.elements.forEach(e=>all.push(e.p1,e.p2));TRACE.paths.forEach(
 const xs=all.map(q=>q[0]),ys=all.map(q=>q[1]),xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys),pad=50;
 const sx=x=>pad+(x-xmin)/Math.max(xmax-xmin,1e-6)*(W-2*pad),sy=y=>H-pad-(y-ymin)/Math.max(ymax-ymin,1e-6)*(H-2*pad);
 function drawElement(e){const a=e.p1,b=e.p2;ctx.save();ctx.lineWidth=e.type==='mirror'?5:3;ctx.strokeStyle=e.type==='mirror'?'#2563eb':e.type==='thin_lens'?'#06b6d4':e.type==='screen'?'#475569':e.type==='refractive_interface'?'#8b5cf6':'#111827';ctx.setLineDash(e.type==='refractive_interface'?[7,5]:[]);ctx.beginPath();ctx.moveTo(sx(a[0]),sy(a[1]));ctx.lineTo(sx(b[0]),sy(b[1]));ctx.stroke();ctx.restore();text(e.label,(sx(a[0])+sx(b[0]))/2,(sy(a[1])+sy(b[1]))/2-8,ctx.strokeStyle,11,'center');}
-function draw(){clear();text('几何光学：反射 / 折射 / 薄透镜',16,25,'#0f172a',17);TRACE.elements.forEach(drawElement);const progress=((performance.now()-started)%8000)/8000;
-  TRACE.paths.forEach(path=>{const pts=path.points;let lengths=[],total=0;for(let i=1;i<pts.length;i++){const len=Math.hypot(sx(pts[i][0])-sx(pts[i-1][0]),sy(pts[i][1])-sy(pts[i-1][1]));lengths.push(len);total+=len;}let remain=total*progress;ctx.strokeStyle=path.color;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(sx(pts[0][0]),sy(pts[0][1]));for(let i=1;i<pts.length&&remain>0;i++){const use=Math.min(remain,lengths[i-1]),ratio=use/Math.max(lengths[i-1],1e-9),x=pts[i-1][0]+(pts[i][0]-pts[i-1][0])*ratio,y=pts[i-1][1]+(pts[i][1]-pts[i-1][1])*ratio;ctx.lineTo(sx(x),sy(y));remain-=use;}ctx.stroke();ctx.fillStyle=path.color;ctx.beginPath();ctx.arc(sx(pts[0][0]),sy(pts[0][1]),5,0,Math.PI*2);ctx.fill();text(path.label,sx(pts[0][0]),sy(pts[0][1])-10,path.color,11,'center');});requestAnimationFrame(draw);}
+function draw(){clear();text('几何光学：反射 / 折射 / 薄透镜',16,25,'#0f172a',17);TRACE.elements.forEach(drawElement);const progress=timelineProgress(8);
+  TRACE.paths.forEach(path=>{const pts=path.points;let lengths=[],total=0;for(let i=1;i<pts.length;i++){const len=Math.hypot(sx(pts[i][0])-sx(pts[i-1][0]),sy(pts[i][1])-sy(pts[i-1][1]));lengths.push(len);total+=len;}let remain=total*progress;ctx.strokeStyle=path.color;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(sx(pts[0][0]),sy(pts[0][1]));for(let i=1;i<pts.length&&remain>0;i++){const use=Math.min(remain,lengths[i-1]),ratio=use/Math.max(lengths[i-1],1e-9),x=pts[i-1][0]+(pts[i][0]-pts[i-1][0])*ratio,y=pts[i-1][1]+(pts[i][1]-pts[i-1][1])*ratio;ctx.lineTo(sx(x),sy(y));remain-=use;}ctx.stroke();ctx.fillStyle=path.color;ctx.beginPath();ctx.arc(sx(pts[0][0]),sy(pts[0][1]),5,0,Math.PI*2);ctx.fill();text(path.label,sx(pts[0][0]),sy(pts[0][1])-10,path.color,11,'center');});nextFrame(draw);}
 """
     return _shell("Deterministic geometric ray tracing", "ray-optics", spec, trace, ids, script)
 
@@ -318,9 +339,16 @@ def compile_domain_program(
         raw_simulation_spec = scene.get("simulation_spec")
         if not isinstance(raw_simulation_spec, Mapping):
             raise DomainSimulationError(f"scenes[{index}] requires simulation_spec")
-        simulation_spec = _apply_world_semantics(engine, raw_simulation_spec, world_spec)
+        world_bound_spec = _apply_world_semantics(
+            engine, raw_simulation_spec, world_spec
+        )
+        simulation_spec, normalizations = normalize_domain_simulation_spec(
+            engine, world_bound_spec
+        )
         trace = simulate_domain(engine, simulation_spec)
         scene["simulation_spec"] = simulation_spec
+        if normalizations:
+            scene["simulation_spec_normalizations"] = normalizations
         scene["trace"] = trace
         scene["trace_sha256"] = canonical_sha256(trace)
         scene["solver_version"] = SOLVER_VERSION

@@ -9,7 +9,7 @@ from .models import EduWorldSpec, K12Problem, StoryBlock
 from .routing import RouteDecision
 
 
-PROMPT_VERSION = "k12simworld-v1.8-worldspec-feedback"
+PROMPT_VERSION = "k12simworld-v2.0-path-constraints"
 
 
 def _domain_program_contract(route: RouteDecision) -> str:
@@ -41,24 +41,62 @@ def _domain_program_contract(route: RouteDecision) -> str:
     {"id":"push","target":"world_object_id","force":[2,0],"start_time":0,"end_time":1}
   ],
   "actions":[
-    {"time":0,"type":"set_velocity","target":"world_object_id","value":[2,0]}
+    {"trigger":{"type":"position_crossing","body":"world_object_id","axis":"x",
+                "value":0,"direction":"positive","after_time":0.1},
+     "type":"remove_distance_constraint","target":"rope_link",
+     "event_id":"rope_break","event_type":"string_break",
+     "participants":["world_object_id","declared_rope_object_id"],
+     "label":"绳子在事件点断开"},
+    {"trigger":{"type":"position_crossing","body":"world_object_id","axis":"x",
+                "value":0,"direction":"positive","after_time":0.1},
+     "type":"emit_event","target":"world_object_id","event_id":"bottom_reached",
+     "event_type":"bottom_reached","participants":["world_object_id"],"label":"到达底端"}
   ],
+  "phases":[
+    {"id":"constrained_motion","start_time":0,"end_time":2,
+     "label":"阶段 1：受约束运动","description":"显示完整物理世界和约束"},
+    {"id":"free_motion","start_time":2,"end_time":8,
+     "label":"阶段 2：约束解除后的运动","description":"保留断开瞬间的速度"}
+  ],
+  "visual_strategy":"continuous_process",
   "annotations":[
     {"type":"trail","target":"world_object_id"},
     {"type":"velocity_arrow","target":"world_object_id"},
     {"type":"force_arrow","target":"world_object_id"}
   ],
-  "visual_instances":[
-    {"id":"ball_v","source_object_id":"world_object_id",
-     "view":"vertical_projection","panel":"left","label":"vertical motion","show_trail":true},
-    {"id":"ball_h","source_object_id":"world_object_id",
-     "view":"horizontal_projection","panel":"right","label":"horizontal motion","show_trail":true}
-  ]
+  "visual_instances":[]
 }
 Supported body shapes: circle, box, rod. Supported motion types: dynamic, static, kinematic.
-Static geometry currently supports finite line segments. Segment normal must point toward the
-allowed body side. Springs and distance constraints connect body_a/body_b or anchor_a/anchor_b.
-Supported actions: impulse, set_velocity, set_angular_velocity. The trusted runtime owns gravity,
+Static geometry currently supports finite non-zero-length line segments. Segment normal must point
+toward the allowed body side. Never encode a pivot/point as p1==p2 static geometry; use a
+distance-constraint anchor_a/anchor_b, which the trusted renderer draws as the pivot. Springs and
+distance constraints connect body_a/body_b or anchor_a/anchor_b.
+For a body constrained to a finite track, use path_constraints instead of inventing a zero-length
+distance constraint. A path constraint owns exactly one body and is one of:
+{"id":"track","body":"world_object_id","type":"polyline","points":[[0,2],[1,1],[2,1]],
+ "auto_release":"end","release_event_id":"leave_track","release_event_type":"path_release"}
+{"id":"track","body":"world_object_id","type":"bezier","points":[[0,2],[1,0],[2,1]],
+ "auto_release":"end"}
+{"id":"track","body":"world_object_id","type":"circular_arc","center":[0,0],"radius":2,
+ "start_angle":3.141592653589793,"end_angle":0,"auto_release":"end"}
+Angles are radians; decreasing angles traverse clockwise. The solver projects the initial state to
+the path, keeps velocity tangent, integrates tangential acceleration, and automatically releases at
+the configured start/end/either endpoint while emitting a snapshot event. Do not put the same body
+in both distance_constraints and path_constraints.
+Supported body actions: impulse, set_position, set_velocity, set_angular_velocity. Supported
+constraint actions: remove_distance_constraint, restore_distance_constraint,
+remove_path_constraint, and restore_path_constraint. emit_event records a real teaching event
+without modifying state; target is the observed body, and event_id/event_type describe what
+happened. Never fabricate a distance constraint merely to report arrival at the bottom or departure
+from a track. An action uses
+exactly one scheduling form: a TOP-LEVEL numeric time field such as {"time":0.5,...}, or
+trigger={type:position_crossing, body, axis:x|y, value,
+direction:positive|negative|either, after_time}, or trigger={type:speed_below, body, threshold,
+after_time}. Never emit trigger.type=time/at_time/time_reached; timed actions use the top-level
+time field. Constraint actions target the matching constraint id and omit value. Use event_id,
+event_type, participants (canonical WorldSpec object ids), and label to expose the physical
+intervention in the trace, candidate-event validation, and video.
+The trusted runtime owns gravity,
 forces, fixed-step integration, localized contacts, collisions, spring forces, distance projection,
 trace generation, Canvas drawing, and recording. Use one consistent SI or explicitly normalized
 scale justified by WorldSpec. Every body and static_geometry id must exist in WorldSpec. Link and
@@ -81,13 +119,16 @@ two-participant contact/collision terminal_event, the compiler binds it as termi
 solver stops at the localized pre-impulse contact snapshot. Never shorten the starting height or
 alter gravity, velocity, mass, radius, or duration merely to force candidate targets to pass.
 
-bodies contains canonical physical entities only and MUST NOT contain cloned teaching views such
-as ball_h, ball_v, object_copy, or panel_ball. To show one body in multiple panels or to separate
-its motion components, declare visual_instances instead. Each visual instance must have a unique
-id and source_object_id equal to an existing bodies[].id. Supported views are full,
-horizontal_projection, and vertical_projection; supported panels are main, left, right, top, and
-bottom. A visual instance is render-only: never target it with forces, actions, annotations,
-events, invariants, or target_observables."""
+Default to visual_strategy="continuous_process" and visual_instances=[] so the viewer sees one
+complete physical world: supports, constraints, bodies, trajectories, interactions, and phase
+changes together. Use phases to label meaningful consecutive parts of the same causal trajectory.
+Do not turn ordinary 2-D motion into horizontal/vertical projection panels. Only when the problem
+explicitly asks learners to decompose vector components may you set
+visual_strategy="component_decomposition" and declare visual_instances. Each visual instance must
+reference an existing bodies[].id and is render-only: never target it with forces, actions,
+annotations, events, invariants, or target_observables. Mutually exclusive counterfactuals cannot
+share one state trace; implement them as separate storyboard scenes that start from the same
+canonical initial state and differ only by the requested intervention."""
     if route.engine == "equation-solver":
         return """Do not write HTML or an integrator. Choose exactly one equation domain model.
 
@@ -204,8 +245,13 @@ Return one JSON object only:
     {{"block_id":"SIM_1","kind":"sim","content":"observable state and change","highlights":["object_id_hint"]}}
   ]
 }}
-Blocks must alternate text/sim, use grade-appropriate language, and include only simulations
-that contribute to a reasoning step. Do not include implementation code.
+Order blocks by the teaching argument; adjacent text or simulation blocks are allowed. Every SIM
+block must describe one physically coherent trajectory from its initial condition through the key
+interaction to the observable outcome, not a static diagram or a coordinate-component projection.
+When the explanation compares mutually exclusive interventions or outcomes, create separate SIM
+blocks (for example SIM_1 for breaking a string at A and SIM_2 for breaking it at C). Each such SIM
+must show the complete physical world and full causal process. Use grade-appropriate language and
+do not include implementation code.
 
 Visualization policy: default to mode=schematic_2d. You may request mode=spatial_3d only when
 physical understanding genuinely depends on depth. Then criterion must be exactly one of
@@ -271,7 +317,16 @@ Do not attach one ambiguous unit to an object with differently dimensioned prope
 property-specific units such as mass_unit="kg" and radius_unit="m". Units for the same named
 quantity must agree everywhere in the WorldSpec.
 Each object needs a unique id. Each expected event needs id, type, participants, condition,
-and storyboard_step. Event participants must be declared object ids.
+and storyboard_step. Event participants must be declared object ids. Mark a decisive event with
+required_for_validation=true when the selected trusted solver can emit it. For mechanics scenes,
+the program must copy that expected event id/type/participants into the causal action so the event
+is auditable rather than merely narrated.
+
+When the Storyboard contains mutually exclusive SIM scenes, do not merge their outcomes into one
+global final_state or terminal_event. Keep only genuinely shared facts there; attach each numerical
+outcome to a target_observable with its own scene_id. A target at one scene's C point must never be
+placed at=final for a different A-point break scene. Use one terminal_event only when it is common
+to the relevant scenes and can be emitted by the selected solver.
 
 Problem (gold answer omitted):
 {json.dumps(problem.model_payload(), ensure_ascii=False, indent=2)}
@@ -342,6 +397,18 @@ Return one JSON object only:
 Required scene ids: {json.dumps(scene_ids)}. Never include document, HTML, JavaScript, trace, or
 solver output: the trusted compiler creates them. Use the same WorldSpec object ids across
 scenes. A later scene may change only a parameter or action requested by the storyboard.
+
+Process fidelity rules:
+- Each scene is a complete causal trajectory, not a collection of disconnected diagrams.
+- Start from the canonical initial condition, execute the physical interaction, and continue until
+  the outcome needed by that SIM block is visibly established.
+- Use visual_strategy=continuous_process and an empty visual_instances list by default.
+- Use phases for consecutive stages such as constrained motion, release/collision, and free motion.
+- Use remove_distance_constraint at the real break/release time or event; never leave a rope active
+  while narrating free flight.
+- Preserve instantaneous position and velocity across an intervention unless the problem supplies
+  an impulse. Do not fake a transition with set_position or set_velocity.
+- Put mutually exclusive interventions in different scenes, never in one impossible state trace.
 
 {domain_contract}
 
@@ -477,7 +544,11 @@ def target_repair_prompt(
 Your previous declarative simulation executed, but its trusted trace violated the immutable
 candidate-derived SimulationContract. Return one complete replacement JSON object, not a patch.
 Do not change problem givens, CandidateSolution, target values, or tolerances. Correct only the
-simulation mapping, equations, event condition, allowed unknown parameter, or duration.
+simulation mapping, equations, event condition, allowed unknown parameter, or duration. Repair the
+causal process, not just the endpoint: if an expected break/release/collision is absent, add the
+supported timed or event-triggered action and preserve the state through that event. Keep the
+complete world visible with visual_strategy=continuous_process unless the storyboard explicitly
+requires vector-component decomposition.
 Target validation report:
 {json.dumps(dict(validation_report), ensure_ascii=False, indent=2)}
 Previous output:

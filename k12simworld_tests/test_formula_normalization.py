@@ -66,6 +66,48 @@ class FormulaNormalizationTest(unittest.TestCase):
         self.assertTrue(any("inlined derived expression" in item for item in changes))
         EduWorldSpec.from_dict(normalized)
 
+    def test_extracts_negated_dotted_lookup(self):
+        payload = self._base_spec()
+        payload["target_observables"] = [{
+            "id": "downward_velocity",
+            "expression": "-objects.ball.velocity.1",
+            "bindings": {},
+            "expected": 3.0,
+        }]
+
+        normalized, _ = normalize_world_spec_formulas(payload)
+        target = normalized["target_observables"][0]
+
+        self.assertNotIn("objects.ball.velocity.1", target["expression"])
+        self.assertTrue(target["expression"].startswith("-"))
+        self.assertIn("objects.ball.velocity.1", target["bindings"].values())
+        EduWorldSpec.from_dict(normalized)
+
+    def test_safely_expands_negated_arithmetic_binding(self):
+        payload = self._base_spec()
+        payload["invariants"] = [{
+            "id": "signed_momentum",
+            "expression": "net_vertical - reference",
+            "bindings": {
+                "net_vertical": (
+                    "-objects.ball.velocity.1 * m + "
+                    "objects.other.velocity.1 * m"
+                ),
+                "reference": "objects.ball.position.1",
+            },
+            "type": "constant",
+        }]
+
+        normalized, changes = normalize_world_spec_formulas(payload)
+        invariant = normalized["invariants"][0]
+
+        self.assertNotIn("net_vertical", invariant["bindings"])
+        self.assertNotIn("objects.", invariant["expression"])
+        self.assertIn("objects.ball.velocity.1", invariant["bindings"].values())
+        self.assertIn("objects.other.velocity.1", invariant["bindings"].values())
+        self.assertTrue(any("inlined derived expression" in item for item in changes))
+        EduWorldSpec.from_dict(normalized)
+
 
 if __name__ == "__main__":
     unittest.main()

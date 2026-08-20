@@ -7,6 +7,7 @@ from pathlib import Path
 from k12simworld.domain_compiler import compile_domain_program
 from k12simworld.domain_solvers import DomainSimulationError, simulate_domain
 from k12simworld.models import EduWorldSpec, K12Problem, StoryBlock
+from k12simworld.prompts import program_prompt, storyboard_prompt
 from k12simworld.routing import EngineRouter, audit_spatial_request
 from k12simworld.validation import validate_program_payload
 
@@ -57,6 +58,197 @@ class Mechanics2DSolverTest(unittest.TestCase):
         for frame in trace["time_series"]:
             position = frame["objects"]["ball"]["position"]
             self.assertAlmostEqual(math.hypot(*position), 1, places=7)
+
+    def test_pendulum_constraint_preserves_tangent_motion_and_energy(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 2, "dt": 1 / 240,
+            "gravity": [0, -9.8],
+            "bodies": [{
+                "id": "bob", "shape": "circle", "mass": .1, "radius": .05,
+                "position": [-.8, -.6], "velocity": [0, 0],
+            }],
+            "distance_constraints": [{
+                "id": "rope", "anchor_a": [0, 0], "body_b": "bob", "length": 1,
+            }],
+        })
+        self.assertGreater(trace["summary"]["bob"]["x_range"][1], .75)
+        energies = [
+            frame["objects"]["bob"]["mechanical_energy"]
+            for frame in trace["time_series"]
+        ]
+        self.assertLess(max(energies) - min(energies), .01)
+        for frame in trace["time_series"]:
+            self.assertAlmostEqual(
+                math.hypot(*frame["objects"]["bob"]["position"]), 1, places=7
+            )
+
+    def test_timed_string_break_preserves_state_and_releases_body(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 1, "dt": .001,
+            "gravity": [0, 0],
+            "bodies": [{
+                "id": "bob", "shape": "circle", "mass": 1, "radius": .05,
+                "position": [1, 0], "velocity": [0, 1],
+            }],
+            "distance_constraints": [{
+                "id": "rope", "anchor_a": [0, 0], "body_b": "bob", "length": 1,
+            }],
+            "actions": [{
+                "time": .5, "type": "remove_distance_constraint", "target": "rope",
+                "event_id": "break", "event_type": "string_break", "label": "断绳",
+            }],
+        })
+        event = next(item for item in trace["events"] if item.get("id") == "break")
+        self.assertEqual(event["type"], "string_break")
+        before = max(
+            (frame for frame in trace["time_series"] if frame["t"] < event["t"]),
+            key=lambda frame: frame["t"],
+        )
+        after = event["snapshot"]
+        self.assertIn("rope", before["active_constraints"])
+        self.assertNotIn("rope", after["active_constraints"])
+        self.assertLess(
+            math.dist(before["objects"]["bob"]["velocity"], after["objects"]["bob"]["velocity"]),
+            .01,
+        )
+        self.assertGreater(math.hypot(*trace["summary"]["bob"]["final_position"]), 1.05)
+
+    def test_nested_time_trigger_alias_is_canonicalized(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 1, "dt": .01,
+            "gravity": [0, 0],
+            "bodies": [{
+                "id": "ball", "shape": "circle", "mass": 1, "radius": .05,
+                "position": [1, 0], "velocity": [0, 1],
+            }],
+            "distance_constraints": [{
+                "id": "rope", "anchor_a": [0, 0], "body_b": "ball", "length": 1,
+            }],
+            "actions": [{
+                "trigger": {"type": "time", "value": 0.0},
+                "type": "remove_distance_constraint", "target": "rope",
+                "event_id": "break_at_A", "event_type": "string_break",
+            }],
+            "phases": [
+                {"id": "initial", "start_time": 0, "end_time": 0, "label": "初始瞬间"},
+                {"id": "free", "start_time": 0, "end_time": 1, "label": "自由运动"},
+            ],
+        })
+        event = next(item for item in trace["events"] if item.get("id") == "break_at_A")
+        self.assertEqual(event["t"], 0.0)
+        self.assertNotIn("rope", event["snapshot"]["active_constraints"])
+        self.assertEqual(trace["phases"][0]["start_time"], trace["phases"][0]["end_time"])
+
+    def test_conflicting_nested_and_top_level_times_are_rejected(self):
+        with self.assertRaisesRegex(DomainSimulationError, "conflicts"):
+            simulate_domain("mechanics-2d", {
+                "domain_model": "mechanics_2d", "duration": 1, "dt": .01,
+                "bodies": [{"id": "ball", "shape": "circle", "position": [0, 0]}],
+                "actions": [{
+                    "time": .2, "trigger": {"type": "time", "value": .3},
+                    "type": "set_velocity", "target": "ball", "value": [1, 0],
+                }],
+            })
+
+    def test_position_crossing_can_trigger_string_break(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 1.2, "dt": 1 / 240,
+            "gravity": [0, -9.8],
+            "bodies": [{
+                "id": "bob", "shape": "circle", "mass": .1, "radius": .05,
+                "position": [-.8, -.6], "velocity": [0, 0],
+            }],
+            "distance_constraints": [{
+                "id": "rope", "anchor_a": [0, 0], "body_b": "bob", "length": 1,
+            }],
+            "actions": [{
+                "type": "remove_distance_constraint", "target": "rope",
+                "trigger": {
+                    "type": "position_crossing", "body": "bob", "axis": "x",
+                    "value": 0, "direction": "positive", "after_time": .1,
+                },
+                "event_id": "break_at_C", "event_type": "string_break",
+            }],
+            "phases": [
+                {"id": "swing", "start_time": 0, "end_time": .53, "label": "摆动"},
+                {"id": "flight", "start_time": .53, "end_time": 1.2, "label": "抛体"},
+            ],
+        })
+        event = next(item for item in trace["events"] if item.get("id") == "break_at_C")
+        self.assertAlmostEqual(event["t"], .53, delta=.03)
+        event_frame = min(trace["time_series"], key=lambda frame: abs(frame["t"] - event["t"]))
+        self.assertNotIn("rope", event_frame["active_constraints"])
+        self.assertGreater(event_frame["objects"]["bob"]["velocity"][0], 2.5)
+        self.assertEqual([phase["id"] for phase in trace["phases"]], ["swing", "flight"])
+
+    def test_emit_event_records_state_without_changing_motion(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 1, "dt": .01,
+            "gravity": [0, 0],
+            "bodies": [{
+                "id": "ball", "shape": "circle", "mass": 1, "radius": .05,
+                "position": [0, 0], "velocity": [1, 0],
+            }],
+            "actions": [{
+                "type": "emit_event", "target": "ball",
+                "trigger": {
+                    "type": "position_crossing", "body": "ball", "axis": "x",
+                    "value": .5, "direction": "positive", "after_time": 0,
+                },
+                "event_id": "midpoint", "event_type": "bottom_reached",
+                "participants": ["ball"], "label": "到达底端",
+            }],
+        })
+
+        event = next(item for item in trace["events"] if item.get("id") == "midpoint")
+        self.assertEqual(event["action_type"], "emit_event")
+        self.assertAlmostEqual(event["t"], .5, delta=.011)
+        self.assertAlmostEqual(event["snapshot"]["objects"]["ball"]["velocity"][0], 1)
+        self.assertAlmostEqual(trace["summary"]["ball"]["final_position"][0], 1)
+
+    def test_circular_path_releases_at_endpoint_with_tangent_velocity(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 4, "dt": .002,
+            "gravity": [0, 0],
+            "bounds": {"x_min": -2, "x_max": 3, "y_min": -2, "y_max": 2},
+            "bodies": [{
+                "id": "ball", "shape": "circle", "mass": 1, "radius": .05,
+                "position": [-1, 0], "velocity": [0, 1],
+            }],
+            "path_constraints": [{
+                "id": "arc_track", "body": "ball", "type": "circular_arc",
+                "center": [0, 0], "radius": 1,
+                "start_angle": math.pi, "end_angle": 0,
+                "auto_release": "end", "release_event_id": "leave_track",
+                "release_event_type": "path_release", "label": "离开轨道",
+            }],
+        })
+
+        event = next(item for item in trace["events"] if item.get("id") == "leave_track")
+        state = event["snapshot"]["objects"]["ball"]
+        self.assertEqual(event["action_type"], "automatic_path_release")
+        self.assertEqual(event["endpoint"], "end")
+        self.assertAlmostEqual(event["t"], math.pi, delta=.004)
+        self.assertAlmostEqual(state["position"][0], 1, places=6)
+        self.assertAlmostEqual(state["position"][1], 0, places=6)
+        self.assertAlmostEqual(state["velocity"][0], 0, places=6)
+        self.assertAlmostEqual(state["velocity"][1], -1, places=6)
+        self.assertNotIn("arc_track", event["snapshot"]["active_constraints"])
+        self.assertLess(trace["summary"]["ball"]["final_position"][1], -.8)
+        self.assertEqual(trace["path_constraints"][0]["type"], "circular_arc")
+
+    def test_curve_constraints_alias_is_canonicalized(self):
+        trace = simulate_domain("mechanics-2d", {
+            "domain_model": "mechanics_2d", "duration": 1, "dt": .01,
+            "gravity": [0, 0],
+            "bodies": [{"id": "ball", "shape": "circle", "position": [0, 0], "velocity": [1, 1]}],
+            "curve_constraints": [{
+                "id": "curve", "body": "ball", "type": "bezier",
+                "points": [[0, 0], [.5, .5], [1, 0]], "auto_release": "none",
+            }],
+        })
+        self.assertEqual(trace["path_constraints"][0]["type"], "bezier")
+        self.assertIn("curve", trace["time_series"][-1]["active_constraints"])
 
     def test_dynamic_body_collides_with_static_body(self):
         trace = simulate_domain("mechanics-2d", {
@@ -175,10 +367,45 @@ class Mechanics2DIntegrationTest(unittest.TestCase):
         report = validate_program_payload(compiled, spec, [StoryBlock("SIM_1", "sim", "show ball")])
         self.assertTrue(report.valid, report.errors)
         self.assertIn("声明式二维力学", compiled["scenes"][0]["document"])
+        self.assertIn("const offsetX=(W-worldWidth*scale)/2", compiled["scenes"][0]["document"])
+        self.assertNotIn("(x-b.x_min)/(b.x_max-b.x_min)*(W-2*pad)", compiled["scenes"][0]["document"])
+        self.assertIn("(TRACE.path_constraints||[]).forEach(drawPath)", compiled["scenes"][0]["document"])
         self.assertIn("visualInstances", compiled["scenes"][0]["document"])
+        self.assertIn("visualStrategy==='component_decomposition'", compiled["scenes"][0]["document"])
+        self.assertEqual(
+            compiled["scenes"][0]["trace"]["visual_strategy"], "continuous_process"
+        )
         self.assertNotIn("ball_h", compiled["scenes"][0]["trace"]["time_series"][0]["objects"])
         compiled["scenes"][0]["trace"]["duration"] = 99
         self.assertFalse(validate_program_payload(compiled, spec, [StoryBlock("SIM_1", "sim", "show")]).valid)
+
+    def test_compiler_persists_canonical_top_level_action_time(self):
+        spec = world()
+        raw = {
+            "engine": "mechanics-2d",
+            "render_spec": {"engine": "mechanics-2d", "fps": 5, "duration": 1},
+            "world_spec_sha256": spec.canonical_hash(),
+            "scenes": [{"scene_id": "SIM_1", "simulation_spec": {
+                "domain_model": "mechanics_2d", "duration": 1, "dt": .01,
+                "gravity": [0, 0],
+                "bodies": [{
+                    "id": "ball", "shape": "circle", "position": [1, 0],
+                    "velocity": [0, 1],
+                }],
+                "distance_constraints": [{
+                    "id": "rope", "anchor_a": [0, 0], "body_b": "ball", "length": 1,
+                }],
+                "actions": [{
+                    "trigger": {"type": "at_time", "time": 0},
+                    "type": "remove_distance_constraint", "target": "rope",
+                }],
+            }}],
+        }
+        scene = compile_domain_program(raw, spec)["scenes"][0]
+        action = scene["simulation_spec"]["actions"][0]
+        self.assertEqual(action["time"], 0)
+        self.assertNotIn("trigger", action)
+        self.assertIn("converted trigger.type=at_time", scene["simulation_spec_normalizations"][0])
 
     def test_compiler_maps_world_point_mass_and_terminal_contact(self):
         spec = EduWorldSpec.from_dict({
@@ -255,6 +482,23 @@ class SpatialGateTest(unittest.TestCase):
     def problem(self, question="小球在竖直平面内运动"):
         return K12Problem.from_record({"problem_id": "p", "question": question,
                                       "subject": "physics-g12", "simulation_type": "projectile"})
+
+    def test_prompts_default_to_complete_process_not_projection_panels(self):
+        problem = self.problem("单摆到最低点时剪断绳子，观察后续运动")
+        route = EngineRouter().route(problem)
+        prompt = program_prompt(
+            problem,
+            [StoryBlock("SIM_1", "sim", "从释放、摆动到剪断后的完整过程")],
+            world(),
+            route,
+            {},
+        )
+        self.assertIn('"visual_strategy":"continuous_process"', prompt)
+        self.assertIn('"visual_instances":[]', prompt)
+        self.assertNotIn('"id":"ball_v"', prompt)
+        story = storyboard_prompt(problem)
+        self.assertIn("mutually exclusive interventions", story)
+        self.assertIn("complete physical world", story)
 
     def test_native_defaults_to_declarative_2d(self):
         route = EngineRouter().route(self.problem())

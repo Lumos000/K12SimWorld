@@ -306,7 +306,10 @@ class DomainIntegrationTest(unittest.TestCase):
         compiled = compile_domain_program(raw, spec)
         report = validate_program_payload(compiled, spec, storyboard)
         self.assertTrue(report.valid, report.errors)
-        self.assertIn("<canvas", compiled["scenes"][0]["document"])
+        document = compiled["scenes"][0]["document"]
+        self.assertIn("<canvas", document)
+        self.assertIn("window.__k12simRenderFrame", document)
+        self.assertIn("timelineProgress(duration)", document)
         compiled["scenes"][0]["trace"]["duration"] = 999
         self.assertFalse(validate_program_payload(compiled, spec, storyboard).valid)
 
