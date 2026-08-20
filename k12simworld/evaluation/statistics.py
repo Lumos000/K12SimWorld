@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import random
 from statistics import mean
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 
 def _ranks(values: Sequence[float]) -> List[float]:

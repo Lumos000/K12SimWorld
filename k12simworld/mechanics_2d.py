@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
-from .domain_solvers import (
+from .domain_common import (
     DomainSimulationError, _bounded_number, _finite_number, _round, _safe_id, _vec2,
 )
 from .simulation_normalization import normalize_domain_simulation_spec

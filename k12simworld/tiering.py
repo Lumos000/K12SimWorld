@@ -5,10 +5,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Dict, List, Mapping
 
 from .io import read_records, write_json, write_jsonl
 from .models import K12Problem

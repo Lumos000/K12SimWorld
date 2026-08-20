@@ -9,7 +9,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 from .adapters import VisPhyLLMAdapter, VisPhyRendererAdapter
 from .baselines import BASELINE_METHODS, BaselinePipeline

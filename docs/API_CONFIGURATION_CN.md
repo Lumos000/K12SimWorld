@@ -118,63 +118,41 @@ HF_TOKEN="hf_你的令牌"
 HF_API_BASE="https://router.huggingface.co/v1"
 ```
 
-## 3. 不发请求地检查配置
+## 3. 检查配置与最小请求
 
-以下命令只检查变量是否存在，不会显示 key，也不会调用模型：
+先确认当前仓库入口和参数可用；这一步不会发起网络请求：
 
 ```bash
-python run_physics_prediction.py --model gpt-5 --check-api
-python run_physics_prediction.py --model claude-sonnet-4-5 --check-api
-python run_physics_prediction.py --model gemini-2.5-pro --check-api
-python run_physics_prediction.py --model qwen3-vl-plus --check-api
-python run_physics_prediction.py --model hf:qwen3-vl-30b-a3b-thinking --check-api
+python run_k12simworld.py --help
+python run_k12simworld.py generate --help
 ```
 
-查看本项目代码支持的全部模型名：
+当前 CLI 不提供独立的 `--check-api` 或 `--list-models` 命令。模型名由 `--model` 传入，provider 由 `src.llm_client.LLMClient` 根据模型名选择。真正的最小连通性检查是只生成一个样本且不渲染：
 
 ```bash
-python run_physics_prediction.py --list-models
-```
-
-`--check-api` 只能确认“填了什么变量”，不能确认余额、权限、区域、模型白名单或网络连通性。真正的最小请求测试是只跑一个样本、单进程：
-
-```bash
-python run_physics_prediction.py \
-  --data-dir data \
-  --split sub \
-  --video task00000_000 \
+python run_k12simworld.py generate \
+  --benchmark /path/to/k12simbench.jsonl \
+  --output-dir /tmp/k12simworld-api-smoke \
   --model qwen3-vl-plus \
-  --engine threejs \
-  --jobs 1
+  --limit 1 --jobs 1
 ```
 
-先用 `--jobs 1`，确认成功后再提高并行数，避免刚开始就触发速率限制。
+该命令会产生实际 API 费用。先使用 `--jobs 1`，确认成功后再提高并行数。失败原因会写入对应题目的 `manifest.json`。
 
-## 4. 生成与评测分别需要什么
+## 4. 各工作流所需配置
 
-- 只做物理预测：只需所选 `--model` 对应的一个 key。
-- 普通本地指标评测：可以不填新 key，并加 `--skip-gt --disable-llm-eval`。
-- 自动生成 GT 场景文本：需要 `OPENAI_API_KEY`，当前代码固定要求 `gpt-5.1`。
-- Gemini 视频一致性评分：官方接口可使用 `GEMINI_API_KEY`；第三方原生
-  Gemini 接口建议使用 `GEMINI_EVAL_API_KEY`、`GEMINI_EVAL_API_BASE` 和
-  `GEMINI_EVAL_MODEL`。
+- `curate`、`prepare-prompts`、`partition-physics-tiers`、`simulate-domain`、`validate`、`evaluate` 和 `score-traces` 可以离线运行。
+- `generate` 和 `generate-baseline` 只需要所选 `--model` 对应的 provider key。
+- `run_k12_screening.py` 固定使用 DeepSeek 文本预筛和 Qwen 多模态终筛，因此需要 `.env.template` 中 screening 小节列出的两组模型、key 和 base URL。
+- `--render` 另外需要 Node.js、Puppeteer、FFmpeg；Manim engine 还需要本地安装 Manim。
 
-完全不调用评测 API 的命令：
-
-```bash
-python create_evaluation_html.py OUTPUT_RUN_DIR \
-  --dataset-dir data \
-  --split sub \
-  --skip-gt \
-  --disable-llm-eval
-```
+项目会记录请求内容和模型响应，但不会主动写入 API key。日志仍可能包含输入图像、提示词和模型输出，分享前应检查隐私内容。
 
 ## 5. 常见错误
 
 - `401`：key 无效，或 DashScope key 与 Base URL 区域不一致。
-- `403`：账号/项目没有模型权限，或 Gemini key 的 API 限制不正确。
-- `404 model not found`：`.env` 已读到，但账号不能访问代码中指定的模型 ID。
+- `403`：账号或项目没有模型权限。
+- `404 model not found`：账号不能访问传入的模型 ID，或 Base URL 路径不兼容。
 - `429`：余额、RPM/TPM/RPD 或并发限制；先把 `--jobs` 降为 1。
-- `openai 库缺失` / `google-generativeai package`：重新执行 `pip install -r requirements.txt`。
-
-本项目会把请求内容和模型响应写入运行日志，但不会主动写入 API key。日志可能包含输入图像、提示词和模型输出，分享日志前仍应检查隐私内容。
+- `openai` 或 `dotenv` 库缺失：执行 `python -m pip install -r requirements-k12.txt`。
+- 渲染器报告缺少 Puppeteer 或 FFmpeg：执行 README 的可选渲染安装步骤；仅做离线求解和不带 `--render` 的生成不需要这些系统工具。

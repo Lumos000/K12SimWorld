@@ -14,7 +14,7 @@ import math
 import re
 from typing import Any, Dict, List, Mapping, MutableMapping, Tuple
 
-from .domain_solvers import DomainSimulationError, _SafeExpression
+from .domain_common import DomainSimulationError, _SafeExpression
 
 
 _LOOKUP_PATH_RE = re.compile(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from statistics import mean
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Sequence
 
 from .metrics import event_f1, numeric_state_accuracy
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .canvas_html_renderer import CanvasHtmlRenderer, RenderingError
+from .canvas_html_renderer import CanvasHtmlRenderer
 
 
 class ThreeJSRenderer(CanvasHtmlRenderer):
@@ -32,8 +32,8 @@ class ThreeJSRenderer(CanvasHtmlRenderer):
         Ensure legacy assets exist (index.html/main.js/recording.js).
 
         Note: The pipeline typically writes a full HTML document and injects
-        `VisExpert/src/recording.js` via file://, so this is mainly for backward
-        compatibility and `content_type='javascript'`.
+        repository-local assets, so this is mainly for backward compatibility
+        and `content_type='javascript'`.
         """
 
         # Keep the legacy main.js/index.html shipped in repo when present.
@@ -43,7 +43,6 @@ class ThreeJSRenderer(CanvasHtmlRenderer):
 
         index_path = assets_path / "index.html"
         main_path = assets_path / "main.js"
-        recording_path = assets_path / "recording.js"
 
         if not index_path.exists():
             index_path.write_text(
@@ -117,11 +116,3 @@ class ThreeJSRenderer(CanvasHtmlRenderer):
                 "recordAnimation(folderPath).catch(err => { console.error(err); process.exit(1); });\n",
                 encoding="utf-8",
             )
-
-        # Keep `recording.js` aligned with src/recording.js if present.
-        src_recording = Path(__file__).resolve().parent / "recording.js"
-        if src_recording.exists():
-            try:
-                recording_path.write_text(src_recording.read_text(encoding="utf-8"), encoding="utf-8")
-            except Exception:
-                pass

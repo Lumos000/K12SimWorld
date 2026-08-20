@@ -8,9 +8,9 @@ import html
 import json
 from typing import Any, Dict, List, Mapping
 
+from .domain_common import DomainSimulationError
 from .domain_solvers import (
     DOMAIN_ENGINES,
-    DomainSimulationError,
     domain_entity_ids,
     simulate_domain,
 )

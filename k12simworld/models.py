@@ -14,7 +14,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
-from .domain_solvers import DomainSimulationError, _SafeExpression
+from .domain_common import DomainSimulationError, _SafeExpression
 
 
 SUBJECT_ALIASES = {

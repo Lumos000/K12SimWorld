@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import random
-import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Sequence, Tuple

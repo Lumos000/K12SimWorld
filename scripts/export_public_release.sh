@@ -65,14 +65,11 @@ release_paths=(
   run_k12simworld.py
   scripts/export_public_release.sh
   src/api_config.py
-  src/cannon.min.js
   src/canvas_html_renderer.py
   src/domain_canvas_renderer.py
   src/llm_client.py
   src/manim_renderer.py
   src/p5js_renderer.py
-  src/recording.js
-  src/three.min.js
   src/threejs_renderer.py
   src/video_normalizer.py
   tests/test_api_config.py

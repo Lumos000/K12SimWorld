@@ -4,10 +4,6 @@ jsonschema>=4.21.0
 Pillow>=10.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
-typing-extensions>=4.7.0
-
-# Model adapters used by generation. Provider-specific SDKs are imported lazily.
-litellm>=1.0.0
+# OpenAI-compatible providers use the OpenAI SDK; the other current provider
+# implementations use requests directly.
 openai>=1.0.0
-google-generativeai>=0.8.0
-google-genai>=1.0.0

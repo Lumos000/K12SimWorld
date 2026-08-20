@@ -11,10 +11,9 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass, field
-from statistics import mean
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from .domain_solvers import _SafeExpression
+from .domain_common import _SafeExpression
 from .evaluation.metrics import numeric_state_accuracy
 from .models import ContractError, EduWorldSpec
 

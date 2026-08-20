@@ -6,7 +6,7 @@ import copy
 import math
 from typing import Any, Dict, List, Mapping, Tuple
 
-from .domain_solvers import DomainSimulationError
+from .domain_common import DomainSimulationError
 
 
 _TIME_TRIGGER_ALIASES = {"time", "at_time", "time_reached"}

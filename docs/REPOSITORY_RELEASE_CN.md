@@ -12,8 +12,7 @@
 - `src/canvas_html_renderer.py`、`src/domain_canvas_renderer.py`、
   `src/threejs_renderer.py`、`src/p5js_renderer.py`、`src/manim_renderer.py`、
   `src/video_normalizer.py`：K12SimWorld 实际依赖的渲染层；
-- `src/recording.js`、`src/three.min.js`、`src/cannon.min.js` 和
-  `assets/threejs/`：离线浏览器渲染资源。
+- `assets/threejs/`：离线浏览器渲染资源的唯一权威副本。
 
 ### 测试、配置与复现材料
 
@@ -67,6 +66,7 @@ git diff --cached --stat
 git diff --cached --check
 git grep -n -I -E 'sk-[A-Za-z0-9_-]{16,}|Bearer [A-Za-z0-9_.-]{16,}' --cached
 python -m unittest discover -s k12simworld_tests -p "test_*.py" -v
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 如果密钥曾进入 Git 暂存区或提交历史，仅从文件中删除并不够；应立即吊销旧密钥并重写历史。

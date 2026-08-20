@@ -34,6 +34,8 @@ from dotenv import load_dotenv
 from jsonschema import Draft202012Validator
 from PIL import Image, ImageStat, UnidentifiedImageError
 
+from .io import write_jsonl
+
 
 SCREENING_VERSION = "k12vista-executable-screen-v1.0"
 TEXT_PROMPT_VERSION = "deepseek-prefilter-v1.0"
@@ -952,17 +954,6 @@ def export_stage_files(cfg: Config, db: Checkpoint) -> None:
             {"id": row[0], "status": row[1], "raw_response": row[2], "attempts": row[3], "updated_at": row[4]}
             for row in conn.execute("SELECT id,status,raw_response,attempts,updated_at FROM stage WHERE stage=? ORDER BY id", (stage,))
         ))
-
-
-def thumbnail_data(raw: Any, max_side: int = 360) -> str:
-    data, _, _ = decode_image(raw)
-    if not data: return ""
-    try:
-        with Image.open(io.BytesIO(data)) as image:
-            image = image.convert("RGB"); image.thumbnail((max_side, max_side))
-            buffer = io.BytesIO(); image.save(buffer, "JPEG", quality=82, optimize=True)
-            return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
-    except Exception: return ""
 
 
 REVIEW_PAGE_SIZE = 100

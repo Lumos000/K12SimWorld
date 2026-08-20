@@ -313,15 +313,6 @@ class CanvasHtmlRenderer:
         with tempfile.TemporaryDirectory(dir=os.getcwd()) as temp_dir:
             for filename in os.listdir(self.assets_dir):
                 shutil.copy(os.path.join(self.assets_dir, filename), temp_dir)
-            # Ensure the latest recording.js is used even if the HTML references a relative path.
-            # (assets/threejs/recording.js can lag behind src/recording.js during development)
-            try:
-                src_recording = os.path.join(os.path.dirname(__file__), "recording.js")
-                if os.path.exists(src_recording):
-                    shutil.copy(src_recording, os.path.join(temp_dir, "recording.js"))
-            except Exception:
-                pass
-
             if content_type == "html":
                 target_html = os.path.join(temp_dir, "index.html")
                 with open(target_html, "w", encoding="utf-8") as handle:

@@ -8,7 +8,9 @@ Before opening a pull request:
 
 1. Add or update deterministic tests for solver, schema, routing, or validation changes.
 2. Keep API keys, datasets, model responses, videos, and machine-specific paths out of Git.
-3. Run `python -m unittest discover -s k12simworld_tests -p "test_*.py" -v`.
+3. Run both test suites:
+   - `python -m unittest discover -s k12simworld_tests -p "test_*.py" -v`
+   - `python -m unittest discover -s tests -p "test_*.py" -v`
 4. Document new `simulation_spec` fields in the JSON Schema and Chinese solver guide.
 5. State numerical assumptions and unsupported regimes explicitly.
 

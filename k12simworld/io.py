@@ -8,7 +8,7 @@ import hashlib
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Mapping
+from typing import Any, Dict, Iterable, Iterator, Mapping
 
 
 def safe_artifact_name(value: str, limit: int = 96) -> str:
@@ -73,10 +73,3 @@ def write_jsonl(path: str | Path, records: Iterable[Mapping[str, Any]]) -> None:
         for record in records
     )
     _atomic_text(Path(path), content)
-
-
-def append_jsonl(path: str | Path, record: Mapping[str, Any]) -> None:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(dict(record), ensure_ascii=False, separators=(",", ":")) + "\n")
